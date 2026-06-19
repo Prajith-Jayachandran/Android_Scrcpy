@@ -19,7 +19,7 @@ if !ERRORLEVEL! neq 0 (
 )
 
 :: Download Scrcpy ZIP
-echo [1/4] Downloading native Scrcpy binaries (v4.0 x64)...
+echo [1/5] Downloading native Scrcpy binaries (v4.0 x64)...
 if exist "scrcpy_temp.zip" del /f "scrcpy_temp.zip"
 powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; echo 'Downloading...'; Invoke-WebRequest -Uri 'https://github.com/Genymobile/scrcpy/releases/download/v4.0/scrcpy-win64-v4.0.zip' -OutFile 'scrcpy_temp.zip'"
 if !ERRORLEVEL! neq 0 (
@@ -30,7 +30,7 @@ if !ERRORLEVEL! neq 0 (
 
 :: Extract ZIP
 echo.
-echo [2/4] Extracting Scrcpy engine files...
+echo [2/5] Extracting Scrcpy engine files...
 if exist "temp_unzip" rmdir /s /q "temp_unzip"
 powershell -Command "echo 'Extracting...'; Expand-Archive -Path 'scrcpy_temp.zip' -DestinationPath 'temp_unzip' -Force"
 if !ERRORLEVEL! neq 0 (
@@ -39,9 +39,9 @@ if !ERRORLEVEL! neq 0 (
     exit /b 1
 )
 
-:: Copy & Reorganize
+:: Copy Scrcpy files to root
 echo Copying binaries to root folder...
-xcopy /e /y "temp_unzip\scrcpy-win64-v4.0\*" "." >nul
+xcopy /e /y /i /h "temp_unzip\scrcpy-win64-v4.0\*" "." >nul
 
 :: Rename scrcpy.exe to scrcpy-engine.exe
 if exist "scrcpy.exe" (
@@ -49,14 +49,13 @@ if exist "scrcpy.exe" (
     rename "scrcpy.exe" "scrcpy-engine.exe"
 )
 
-:: Cleanup
-echo Cleaning up temporary folders...
+:: Cleanup Scrcpy zip/unzip folders
 if exist "scrcpy_temp.zip" del /f "scrcpy_temp.zip"
 if exist "temp_unzip" rmdir /s /q "temp_unzip"
 
 :: Install node_modules
 echo.
-echo [3/4] Installing Electron ^& developer dependencies...
+echo [3/5] Installing Electron ^& package dependencies...
 call npm install
 if !ERRORLEVEL! neq 0 (
     echo [ERROR] Failed to install Node dependencies.
@@ -64,8 +63,41 @@ if !ERRORLEVEL! neq 0 (
     exit /b 1
 )
 
-:: Run Application
+:: Package Electron App
 echo.
-echo [4/4] Setup complete! Starting Android Mirroring...
+echo [4/5] Building the standalone launcher executable...
+if exist "dist" rmdir /s /q "dist"
+call npm run package
+if !ERRORLEVEL! neq 0 (
+    echo [ERROR] Packaging failed.
+    pause
+    exit /b 1
+)
+
+:: Copy compiled files from dist to root
 echo.
-call npm start
+echo [5/5] Finalizing application setup...
+xcopy /e /y /i /h "dist\AndroidScreenCopy-win32-x64\*" "." >nul
+
+:: Rename the compiled launcher to scrcpy.exe
+if exist "AndroidScreenCopy.exe" (
+    if exist "scrcpy.exe" del /f "scrcpy.exe"
+    rename "AndroidScreenCopy.exe" "scrcpy.exe"
+)
+
+:: Clean up the build dist folder
+if exist "dist" rmdir /s /q "dist"
+
+echo.
+echo ======================================================
+echo   🎉 Installation Successful!
+echo   Double-click "scrcpy.exe" to launch the app anytime.
+echo   Starting the application...
+echo ======================================================
+echo.
+
+:: Start the application once
+start "" "scrcpy.exe"
+
+:: Self-deletion command
+(goto) 2>nul & del "%~f0"

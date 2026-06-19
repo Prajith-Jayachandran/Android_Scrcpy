@@ -17,58 +17,22 @@ Since large binary executables (`.exe`), dynamic-link libraries (`.dll`), and br
 
 ## 🛠️ Repository Setup (For Cloned Code)
 
-If you have cloned this repository, you must download the native binaries and install dependencies before running the app. You can do this automatically or manually.
+If you have cloned this repository, you must restore the native binaries, install dependencies, and build the launcher. We have provided a fully automated script to do this:
 
-### Option A: Automated Setup (Recommended & Fastest)
-We have provided an automated setup script that downloads the official Genymobile Scrcpy release, extracts it, configures the engine, installs all Node.js dependencies, and starts the application:
-
+### ⚡ Automated Installation
 1. Double-click the **`install.bat`** file in the project root directory (or run it from your terminal).
-2. Wait for the process to complete. The app will launch automatically when finished!
+2. The installation script will automatically:
+   - Download the official Genymobile `scrcpy` engine binaries.
+   - Install the project's Node.js packages.
+   - Compile and build the standalone application bundle.
+   - Launch the mirroring dashboard immediately.
+   - **Self-delete** the `install.bat` file to keep the workspace clean.
 
 ---
 
-### Option B: Manual Setup
-If you prefer to perform the setup steps manually, follow the instructions below:
+## 🚀 Running the App
 
-#### Step 1: Install Node.js Dependencies
-Open a terminal in the project directory and run:
-```bash
-npm install
-```
-
-#### Step 2: Download Native Scrcpy Binaries
-1. Go to the [Official Genymobile Scrcpy Releases](https://github.com/Genymobile/scrcpy/releases).
-2. Download the **Windows 64-bit release** (version **v4.0** is recommended, e.g., `scrcpy-win64-v4.0.zip`).
-3. Extract the downloaded ZIP archive.
-4. Copy the following files and folders from the extracted directory directly into the root of this project:
-   - `scrcpy.exe`
-   - `scrcpy-server`
-   - `adb.exe`
-   - `AdbWinApi.dll` and `AdbWinUsbApi.dll`
-   - `SDL3.dll`
-   - All other `.dll` files (`avcodec-62.dll`, `avformat-62.dll`, `avutil-60.dll`, `swresample-6.dll`, `libusb-1.0.dll`, etc.)
-5. **Rename** the copied **`scrcpy.exe`** to **`scrcpy-engine.exe`** in the project root. (This prevents namespace conflict with the main Electron application launcher).
-
----
-
-## 🚀 Running the App (Manual Mode)
-
-### 1. Run in Development Mode
-Once the native binaries are copied into the root folder, launch the app directly using:
-```bash
-npm start
-```
-
-### 2. Package into a Standalone Executable
-If you want to build a standalone portable executable package:
-1. Run the packaging command:
-   ```bash
-   npm run package
-   ```
-2. The packager will create a new directory: `dist\AndroidScreenCopy-win32-x64\`.
-3. To distribute or run the packaged version, copy the native dependencies (`scrcpy-engine.exe`, `scrcpy-server`, `adb.exe`, `embed.ps1`, and all `.dll` files) from your project root into `dist\AndroidScreenCopy-win32-x64\`.
-4. In `dist\AndroidScreenCopy-win32-x64\`, rename `AndroidScreenCopy.exe` to `scrcpy.exe` for the final clean branding.
-5. Run `scrcpy.exe` to launch the application.
+After the setup is complete, you can launch the mirroring dashboard at any time by double-clicking the newly compiled **`scrcpy.exe`** file in the project root directory.
 
 ---
 
