@@ -34,6 +34,9 @@ If you have cloned this repository, you must restore the native binaries, instal
 
 After the setup is complete, you can launch the mirroring dashboard at any time by double-clicking the newly compiled **`scrcpy.exe`** file in the project root directory.
 
+> [!IMPORTANT]
+> Make sure to double-click and run **`scrcpy.exe`** (our custom dashboard launcher), **NOT `scrcpy-engine.exe`** (which is the headless native backend engine spawned by Electron and will not display the control dashboard).
+
 ---
 
 ## 📱 How to Prepare Your Phone
