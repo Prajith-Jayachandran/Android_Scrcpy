@@ -1,0 +1,22 @@
+{
+  "name": "android-screen-copy",
+  "version": "1.0.0",
+  "description": "Standalone desktop mirroring and control tool for Android devices",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "package": "electron-packager . AndroidScreenCopy --platform=win32 --arch=x64 --out=dist --overwrite"
+  },
+  "keywords": [
+    "android",
+    "screen-copy",
+    "mirroring"
+  ],
+  "author": "Antigravity",
+  "license": "ISC",
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-packager": "^17.1.2"
+  }
+}

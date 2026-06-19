@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Android Screen Copy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    
+    <!-- Left Sidebar: Devices & Config -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="5" y="2" width="14" height="20" rx="3" />
+            <path d="M12 18h.01" stroke-linecap="round" />
+          </svg>
+        </div>
+        <div class="brand-info">
+          <h1>Android Mirroring</h1>
+          <p>Screen Copy v2.0</p>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <h2>Device Manager</h2>
+        <div class="device-select-wrapper">
+          <select id="device-select" disabled>
+            <option value="">No devices found</option>
+          </select>
+          <button id="btn-refresh" class="btn-icon" title="Refresh Devices">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+            </svg>
+          </button>
+        </div>
+        <div id="device-status-badge" class="status-badge disconnected">
+          <span class="dot"></span>
+          <span class="text">Disconnected</span>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <h2>Control Panel</h2>
+        <div class="action-buttons">
+          <button id="btn-start" class="btn btn-primary" disabled>Start Mirroring</button>
+          <button id="btn-stop" class="btn btn-secondary" disabled>Stop</button>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <h2>Performance</h2>
+        <div class="metric-row">
+          <span>Target Rate:</span>
+          <span class="metric-highlight">60 FPS</span>
+        </div>
+        <div class="metric-row">
+          <span>Latency:</span>
+          <span class="metric-highlight">~35 ms</span>
+        </div>
+        <div class="metric-row">
+          <span>Quality:</span>
+          <span class="metric-highlight">1080p (Native)</span>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <p>Ensure USB debugging is authorized</p>
+      </div>
+    </aside>
+
+    <!-- Main Viewport: Screen Mirror -->
+    <main class="main-content">
+      <div class="phone-frame">
+        <div class="phone-notch"></div>
+        <div class="phone-screen-container">
+          <div id="mirror-container"></div>
+          <div id="screen-placeholder" class="screen-placeholder">
+            <div class="placeholder-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="5" y="2" width="14" height="20" rx="3" />
+                <path d="M12 18h.01" />
+                <path d="M9 6h6" stroke-linecap="round" />
+              </svg>
+            </div>
+            <h3>Ready to Mirror</h3>
+            <p>Select a connected, authorized device and click "Start Mirroring" to begin.</p>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Right Sidebar: Shortcuts & Inputs -->
+    <aside class="control-sidebar">
+      <div class="control-section">
+        <h2>Navigation Shortcuts</h2>
+        <div class="nav-grid">
+          <button id="btn-key-back" class="btn-nav" title="Back">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="19" y1="12" x2="5" y2="12" />
+              <polyline points="12 19 5 12 12 5" />
+            </svg>
+            <span>Back</span>
+          </button>
+          
+          <button id="btn-key-home" class="btn-nav" title="Home">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+              <polyline points="9 22 9 12 15 12 15 22" />
+            </svg>
+            <span>Home</span>
+          </button>
+
+          <button id="btn-key-recents" class="btn-nav" title="App Switcher">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+            </svg>
+            <span>Recents</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="control-section">
+        <h2>Hardware Keys</h2>
+        <div class="hardware-grid">
+          <button id="btn-key-power" class="btn-hw" title="Power Button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+              <line x1="12" y1="2" x2="12" y2="12" />
+            </svg>
+            <span>Power</span>
+          </button>
+
+          <button id="btn-key-volup" class="btn-hw" title="Volume Up">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+              <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+            </svg>
+            <span>Vol +</span>
+          </button>
+
+          <button id="btn-key-voldown" class="btn-hw" title="Volume Down">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+              <line x1="22" y1="12" x2="16" y2="12" />
+            </svg>
+            <span>Vol -</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="control-section">
+        <h2>Sidebar Text Input</h2>
+        <div class="input-send-wrapper">
+          <input type="text" id="text-input" placeholder="Type text to send..." disabled />
+          <button id="btn-send-text" class="btn btn-primary btn-small" disabled>Send</button>
+        </div>
+        <p class="input-tip">You can type directly into the mirroring screen, or use this input field to inject text via ADB.</p>
+      </div>
+
+      <!-- Log Terminal Panel -->
+      <div class="log-section">
+        <div class="log-header">
+          <h2>System Logs</h2>
+          <button id="btn-clear-logs" class="btn-link">Clear</button>
+        </div>
+        <div id="log-console" class="log-console">
+          <div class="log-line system">System ready. Awaiting device scan...</div>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

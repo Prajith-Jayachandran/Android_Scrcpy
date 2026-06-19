@@ -1,0 +1,31 @@
+# Node.js dependencies
+node_modules/
+
+# Packaging build outputs
+dist/
+resources/
+locales/
+
+# Compiled binaries and libraries (scrcpy native assets)
+*.exe
+*.dll
+*.pak
+*.bin
+*.dat
+scrcpy-server
+
+# Temporary/Cache files
+*.zip
+*.png
+temp_unzip/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# Windows folder properties
+Thumbs.db
+ehthumbs.db
+Desktop.ini
