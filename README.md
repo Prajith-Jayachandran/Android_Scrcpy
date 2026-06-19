@@ -2,70 +2,81 @@
 
 A standalone desktop screen mirroring and control application for Android devices. This tool integrates Genymobile's native high-performance `scrcpy` engine directly into a custom, premium dark glassmorphic control dashboard.
 
-## Features
+---
 
-*   **Fluid 60 FPS Mirroring**: Native hardware-accelerated video decoding with sub-70ms latency.
-*   **Aesthetic Custom Dashboard**: Glassmorphic layout containing a device selector, auto-polling state indicators, volume adjustment, and quick-action hardware keys.
-*   **Seamless Controls**: Supports direct touch clicks, swipe gestures, physical PC keyboard typing, and clipboard synchronization (`Ctrl + C` / `Ctrl + V`).
-*   **Window Alignment**: Automatically anchors and resizes the native video stream window to stay locked inside the mockup smartphone border.
+## 🏗️ Architecture: How It Works
+
+To achieve a fluid, zero-latency **60 FPS** stream without lag, this application uses a hybrid architecture:
+1. **Frontend (Electron)**: A modern HTML5/CSS3 glassmorphic dashboard handles device selection, status tracking, window controls, volume, and input emulation.
+2. **Streaming Engine (`scrcpy`)**: Genymobile's native C/SDL compiled `scrcpy` engine is spawned in borderless mode.
+3. **Win32 Docking**: A PowerShell script (`embed.ps1`) hooks into the Windows API, reparenting the native `scrcpy` video window (`SetParent`) and docking it precisely inside the Electron smartphone mockup frame.
+
+Since large binary executables (`.exe`), dynamic-link libraries (`.dll`), and browser packages are ignored by Git to keep the repository under 1 MB, you must download the native binaries separately to run or compile the project.
 
 ---
 
-## Quick Start (How to Use)
+## 🛠️ Repository Setup (For Cloned Code)
 
-### Step 1: Prepare your Phone
-1.  Enable **USB Debugging** on your Android device:
-    *   Open **Settings** -> **About Phone** -> Tap **Build Number** 7 times.
-    *   Go back to **System** -> **Developer options** -> Toggle **USB Debugging** ON.
-2.  Connect your phone to your PC via a USB cable.
-3.  Unlock your phone and approve the fingerprint popup: **"Allow USB debugging? -> Always allow from this computer -> Allow"**.
+If you have cloned this repository, follow these steps to download the required native binaries and run the app.
 
-### Step 2: Launch the Mirror Tool
-1.  Copy the files to your desired directory
-1.  Navigate to that directory in File Explorer.
-2.  Double-click **`scrcpy.exe`**.
-3.  The control dashboard will load and automatically scan for your connected device.
-4.  Once the status indicator turns green (**"Authorized"**), click the **Start Mirroring** button.
-5.  The mirroring stream will dock inside the phone frame!
-
----
-
-## Native Interaction Controls
-
-*   **Click / Drag**: Left-click to tap, click & drag to swipe or scroll.
-*   **Back Key**: Right-click inside the mirror screen (or click the **Back** button on the right sidebar, or press `ESC` on your keyboard).
-*   **Home Key**: Middle-click inside the mirror screen (or click the **Home** button on the right sidebar).
-*   **App Switcher**: Click the **Recents** button on the right sidebar.
-*   **Volume / Power**: Use the **Power**, **Vol +**, and **Vol -** buttons in the sidebar.
-*   **Text Typing**: Click inside the screen and type on your computer keyboard to input text directly on the phone. Alternatively, type into the **Text Input** field in the sidebar and click **Send**.
-
----
-
-## For Developers (Modifying the Code)
-
-If you wish to modify the application UI or script logic, you can run the app in development mode:
-
-### 1. Install Node Dependencies
-Open a command prompt in `D:\Scrcpy` and run:
+### Step 1: Install Node.js Dependencies
+Open a terminal in the project directory and run:
 ```bash
 npm install
 ```
 
-### 2. Start in Development Mode
-To launch the application directly from the source code:
+### Step 2: Download Native Scrcpy Binaries
+1. Go to the [Official Genymobile Scrcpy Releases](https://github.com/Genymobile/scrcpy/releases).
+2. Download the **Windows 64-bit release** (version **v4.0** is recommended, e.g., `scrcpy-win64-v4.0.zip`).
+3. Extract the downloaded ZIP archive.
+4. Copy the following files and folders from the extracted directory directly into the root of this project:
+   - `scrcpy.exe`
+   - `scrcpy-server`
+   - `adb.exe`
+   - `AdbWinApi.dll` and `AdbWinUsbApi.dll`
+   - `SDL3.dll`
+   - All other `.dll` files (`avcodec-62.dll`, `avformat-62.dll`, `avutil-60.dll`, `swresample-6.dll`, `libusb-1.0.dll`, etc.)
+5. **Rename** the copied **`scrcpy.exe`** to **`scrcpy-engine.exe`** in the project root. (This prevents namespace conflict with the main Electron application launcher).
+
+---
+
+## 🚀 Running the App
+
+### 1. Run in Development Mode
+Once the native binaries are copied into the root folder, launch the app directly using:
 ```bash
 npm start
 ```
 
-### 3. Rebuild / Repackage the Executable
-If you modify `main.js`, `renderer.js`, `index.html`, or `style.css` and want to compile a new standalone executable:
-1.  Package the files:
-    ```bash
-    npm run package
-    ```
-2.  A new build will be created in `dist\AndroidScreenCopy-win32-x64\`.
-3.  Move the files from `dist\AndroidScreenCopy-win32-x64\*` up to `D:\Scrcpy` (overwriting the old executables and folders).
-4.  Rename the new `AndroidScreenCopy.exe` to `scrcpy.exe`.
-5.  Delete the temporary `dist/` directory.
+### 2. Package into a Standalone Executable
+If you want to build a standalone portable executable package:
+1. Run the packaging command:
+   ```bash
+   npm run package
+   ```
+2. The packager will create a new directory: `dist\AndroidScreenCopy-win32-x64\`.
+3. To distribute or run the packaged version, copy the native dependencies (`scrcpy-engine.exe`, `scrcpy-server`, `adb.exe`, `embed.ps1`, and all `.dll` files) from your project root into `dist\AndroidScreenCopy-win32-x64\`.
+4. In `dist\AndroidScreenCopy-win32-x64\`, rename `AndroidScreenCopy.exe` to `scrcpy.exe` for the final clean branding.
+5. Run `scrcpy.exe` to launch the application.
 
-*(Note: The backend C/SDL binary `scrcpy-engine.exe` must remain in the same folder as `scrcpy.exe` for the mirroring to start.)*
+---
+
+## 📱 How to Prepare Your Phone
+
+1. Enable **USB Debugging** on your Android device:
+   - Open **Settings** -> **About Phone** -> Tap **Build Number** 7 times.
+   - Go back to **Settings** -> **System** / **Developer Options** -> Turn **USB Debugging** ON.
+2. Connect the phone to your computer with a USB cable.
+   - Select **File Transfer** (MTP) if prompted.
+3. Approve the fingerprint popup on your phone screen:
+   - Check **"Always allow from this computer"** and tap **Allow**.
+
+---
+
+## 🎮 Interaction Controls
+
+* **Left Click & Drag**: Tap, select, swipe, or scroll on the device screen.
+* **Right Click**: Triggers the **Back** button (or press `ESC` on your keyboard, or click the **Back** sidebar button).
+* **Middle Click**: Triggers the **Home** button (or click the **Home** sidebar button).
+* **Sidebar Controls**: Use the on-screen keys for **Recents**, **Power**, **Vol +**, and **Vol -**.
+* **Direct Typing**: Click inside the screen and type on your computer keyboard to input text on the phone. Alternatively, type into the **Text Input** field in the sidebar and click **Send**.
