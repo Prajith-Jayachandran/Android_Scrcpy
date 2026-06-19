@@ -17,15 +17,26 @@ Since large binary executables (`.exe`), dynamic-link libraries (`.dll`), and br
 
 ## 🛠️ Repository Setup (For Cloned Code)
 
-If you have cloned this repository, follow these steps to download the required native binaries and run the app.
+If you have cloned this repository, you must download the native binaries and install dependencies before running the app. You can do this automatically or manually.
 
-### Step 1: Install Node.js Dependencies
+### Option A: Automated Setup (Recommended & Fastest)
+We have provided an automated setup script that downloads the official Genymobile Scrcpy release, extracts it, configures the engine, installs all Node.js dependencies, and starts the application:
+
+1. Double-click the **`install.bat`** file in the project root directory (or run it from your terminal).
+2. Wait for the process to complete. The app will launch automatically when finished!
+
+---
+
+### Option B: Manual Setup
+If you prefer to perform the setup steps manually, follow the instructions below:
+
+#### Step 1: Install Node.js Dependencies
 Open a terminal in the project directory and run:
 ```bash
 npm install
 ```
 
-### Step 2: Download Native Scrcpy Binaries
+#### Step 2: Download Native Scrcpy Binaries
 1. Go to the [Official Genymobile Scrcpy Releases](https://github.com/Genymobile/scrcpy/releases).
 2. Download the **Windows 64-bit release** (version **v4.0** is recommended, e.g., `scrcpy-win64-v4.0.zip`).
 3. Extract the downloaded ZIP archive.
@@ -40,7 +51,7 @@ npm install
 
 ---
 
-## 🚀 Running the App
+## 🚀 Running the App (Manual Mode)
 
 ### 1. Run in Development Mode
 Once the native binaries are copied into the root folder, launch the app directly using:
