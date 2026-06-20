@@ -7,8 +7,9 @@ let activeDevice = null;
 let scrcpyProcess = null;
 let childHwnd = null;
 
-const adbPath = path.join(__dirname, 'adb.exe');
-const scrcpyPath = path.join(__dirname, 'scrcpy-engine.exe');
+const isWin = process.platform === 'win32';
+const adbPath = isWin ? path.join(__dirname, 'adb.exe') : 'adb';
+const scrcpyPath = isWin ? path.join(__dirname, 'scrcpy-engine.exe') : 'scrcpy';
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -122,15 +123,25 @@ ipcMain.on('stop-stream', () => {
 ipcMain.on('update-embed-position', (event, { x, y, w, h }) => {
   if (!childHwnd) return;
   
-  const moveScript = `
-    $sig = '[DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint);';
-    Add-Type -MemberDefinition $sig -Name "Win32" -Namespace "Win32" -ErrorAction SilentlyContinue;
-    [Win32.Win32]::MoveWindow([IntPtr]${childHwnd}, ${x}, ${y}, ${w}, ${h}, $true)
-  `;
-  
-  execFile('powershell', ['-Command', moveScript], (err) => {
-    if (err) console.error("Move error:", err);
-  });
+  if (isWin) {
+    const moveScript = `
+      $sig = '[DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int X, int Y, int nWidth, int nHeight, bool bRepaint);';
+      Add-Type -MemberDefinition $sig -Name "Win32" -Namespace "Win32" -ErrorAction SilentlyContinue;
+      [Win32.Win32]::MoveWindow([IntPtr]${childHwnd}, ${x}, ${y}, ${w}, ${h}, $true)
+    `;
+    
+    execFile('powershell', ['-Command', moveScript], (err) => {
+      if (err) console.error("Move error:", err);
+    });
+  } else {
+    // Linux window resizing using xdotool windowmove & windowsize
+    execFile('xdotool', ['windowmove', childHwnd, x.toString(), y.toString()], (err) => {
+      if (err) console.error("Move error:", err);
+    });
+    execFile('xdotool', ['windowsize', childHwnd, w.toString(), h.toString()], (err) => {
+      if (err) console.error("Size error:", err);
+    });
+  }
 });
 
 function stopStream() {
@@ -147,52 +158,85 @@ function stopStream() {
 function findAndEmbedWindow(embedTitle, x, y, w, h) {
   if (!scrcpyProcess || !mainWindow) return;
 
-  // Search for the MainWindowHandle of the scrcpy process having our custom title
-  const findCmd = `
-    $proc = Get-Process -Name scrcpy-engine -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -eq "${embedTitle}" };
-    if ($proc) { $proc.MainWindowHandle.ToString() } else { "" }
-  `;
+  if (isWin) {
+    // Search for the MainWindowHandle of the scrcpy process having our custom title
+    const findCmd = `
+      $proc = Get-Process -Name scrcpy-engine -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -eq "${embedTitle}" };
+      if ($proc) { $proc.MainWindowHandle.ToString() } else { "" }
+    `;
 
-  execFile('powershell', ['-Command', findCmd], (err, stdout) => {
-    if (err) {
-      logToUI(`Failed to find scrcpy window: ${err.message}`);
-      return;
-    }
-
-    const hwnd = stdout.trim();
-    if (!hwnd || hwnd === "0") {
-      logToUI("scrcpy window not found. Retrying in 1 second...");
-      setTimeout(() => findAndEmbedWindow(embedTitle, x, y, w, h), 1000);
-      return;
-    }
-
-    logToUI(`Found window handle: ${hwnd}. Docking...`);
-    childHwnd = hwnd;
-
-    // Get parent HWND of the Electron window
-    const parentHwnd = process.arch === 'x64' 
-      ? mainWindow.getNativeWindowHandle().readBigInt64LE(0).toString() 
-      : mainWindow.getNativeWindowHandle().readInt32LE(0).toString();
-
-    // Call embed.ps1 to reparent and position
-    const embedScript = path.join(__dirname, 'embed.ps1');
-    const embedArgs = [
-      '-childHwndStr', childHwnd,
-      '-parentHwndStr', parentHwnd,
-      '-x', x,
-      '-y', y,
-      '-w', w,
-      '-h', h
-    ];
-
-    execFile('powershell', ['-File', embedScript, ...embedArgs], (embedErr, embedStdout) => {
-      if (embedErr) {
-        logToUI(`Embedding error: ${embedErr.message}`);
-      } else {
-        logToUI(`Mirror stream docked successfully at 60 FPS.`);
+    execFile('powershell', ['-Command', findCmd], (err, stdout) => {
+      if (err) {
+        logToUI(`Failed to find scrcpy window: ${err.message}`);
+        return;
       }
+
+      const hwnd = stdout.trim();
+      if (!hwnd || hwnd === "0") {
+        logToUI("scrcpy window not found. Retrying in 1 second...");
+        setTimeout(() => findAndEmbedWindow(embedTitle, x, y, w, h), 1000);
+        return;
+      }
+
+      logToUI(`Found window handle: ${hwnd}. Docking...`);
+      childHwnd = hwnd;
+
+      // Get parent HWND of the Electron window
+      const parentHwnd = process.arch === 'x64' 
+        ? mainWindow.getNativeWindowHandle().readBigInt64LE(0).toString() 
+        : mainWindow.getNativeWindowHandle().readInt32LE(0).toString();
+
+      // Call embed.ps1 to reparent and position
+      const embedScript = path.join(__dirname, 'embed.ps1');
+      const embedArgs = [
+        '-childHwndStr', childHwnd,
+        '-parentHwndStr', parentHwnd,
+        '-x', x,
+        '-y', y,
+        '-w', w,
+        '-h', h
+      ];
+
+      execFile('powershell', ['-File', embedScript, ...embedArgs], (embedErr, embedStdout) => {
+        if (embedErr) {
+          logToUI(`Embedding error: ${embedErr.message}`);
+        } else {
+          logToUI(`Mirror stream docked successfully at 60 FPS.`);
+        }
+      });
     });
-  });
+  } else {
+    // Linux search: using xdotool search --name
+    execFile('xdotool', ['search', '--name', embedTitle], (err, stdout) => {
+      if (err || !stdout.trim()) {
+        logToUI("scrcpy window not found. Retrying in 1 second...");
+        setTimeout(() => findAndEmbedWindow(embedTitle, x, y, w, h), 1000);
+        return;
+      }
+
+      // xdotool can return multiple lines; take the first line
+      const lines = stdout.trim().split('\n');
+      const hwnd = lines[0].trim();
+
+      logToUI(`Found window handle: ${hwnd}. Docking...`);
+      childHwnd = hwnd;
+
+      // Get parent WID of the Electron window
+      const parentHwnd = mainWindow.getNativeWindowHandle().readInt32LE(0).toString();
+
+      // Call embed.sh to reparent and position
+      const embedScript = path.join(__dirname, 'embed.sh');
+      const embedArgs = [childHwnd, parentHwnd, x.toString(), y.toString(), w.toString(), h.toString()];
+
+      execFile('bash', [embedScript, ...embedArgs], (embedErr, embedStdout) => {
+        if (embedErr) {
+          logToUI(`Embedding error: ${embedErr.message}`);
+        } else {
+          logToUI(`Mirror stream docked successfully at 60 FPS.`);
+        }
+      });
+    });
+  }
 }
 
 // Sidebar Button Controls
