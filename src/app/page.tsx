@@ -186,29 +186,32 @@ export default function Home() {
     );
   };
 
-  const handleTap = (x: number, y: number) => {
+  const handleTouch = (action: 'down' | 'move' | 'up', x: number, y: number) => {
     if (!wsRef.current || !selectedDeviceId) return;
     wsRef.current.send(
       JSON.stringify({
-        type: 'tap',
+        type: 'touch',
+        action,
         deviceId: selectedDeviceId,
         x,
         y,
+        width: streamMeta?.width || 1080,
+        height: streamMeta?.height || 2400,
       })
     );
   };
 
-  const handleSwipe = (x1: number, y1: number, x2: number, y2: number, duration: number) => {
+  const handleScroll = (x: number, y: number, vScroll: number) => {
     if (!wsRef.current || !selectedDeviceId) return;
     wsRef.current.send(
       JSON.stringify({
-        type: 'swipe',
+        type: 'scroll',
         deviceId: selectedDeviceId,
-        x1,
-        y1,
-        x2,
-        y2,
-        duration,
+        x,
+        y,
+        vScroll,
+        width: streamMeta?.width || 1080,
+        height: streamMeta?.height || 2400,
       })
     );
   };
@@ -251,7 +254,8 @@ export default function Home() {
           <p className="font-semibold text-slate-300 mb-1">Quick Note:</p>
           <ul className="list-disc list-inside space-y-1 text-slate-400">
             <li>Ensure USB Debugging is turned ON.</li>
-            <li>Direct clicks on the screen emulate taps.</li>
+            <li>Direct clicks and drags emulate native touches.</li>
+            <li>Mouse wheel scrolls naturally.</li>
             <li>Right click triggers the Back button.</li>
           </ul>
         </div>
@@ -263,8 +267,8 @@ export default function Home() {
           canvasRef={canvasRef}
           isStreaming={isStreaming}
           meta={streamMeta}
-          onTap={handleTap}
-          onSwipe={handleSwipe}
+          onTouch={handleTouch}
+          onScroll={handleScroll}
           onSendKey={sendKey}
           onSendText={sendText}
         />

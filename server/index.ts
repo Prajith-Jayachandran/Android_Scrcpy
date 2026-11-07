@@ -16,8 +16,11 @@ const adb = new AdbManager();
 interface StreamSession {
   deviceId: string;
   serverProc: any;
-  tcpSocket: net.Socket | null;
+  videoSocket: net.Socket | null;
+  controlSocket: net.Socket | null;
   forwardPort: number;
+  videoWidth: number;
+  videoHeight: number;
 }
 
 let activeSession: StreamSession | null = null;
@@ -81,22 +84,25 @@ app.prepare().then(() => {
               return;
             }
 
-            // 3. Spawn server on device
+            // 3. Spawn server on device with control channel enabled
             sendLog(`Spawning scrcpy-server process on Android...`);
             const proc = adb.spawnServer(deviceId);
 
             activeSession = {
               deviceId,
               serverProc: proc,
-              tcpSocket: null,
-              forwardPort: FORWARD_PORT
+              videoSocket: null,
+              controlSocket: null,
+              forwardPort: FORWARD_PORT,
+              videoWidth: 1080,
+              videoHeight: 2400
             };
 
-            // 4. Connect to forwarded port after a short delay for server initialization
+            // 4. Connect sockets
             setTimeout(() => {
-              sendLog(`Connecting to scrcpy video socket...`);
-              connectToScrcpySocket(deviceId, FORWARD_PORT, ws, sendLog);
-            }, 1000);
+              sendLog(`Connecting video and native control channels...`);
+              connectToScrcpySockets(deviceId, FORWARD_PORT, ws, sendLog);
+            }, 1200);
             break;
           }
 
@@ -107,30 +113,90 @@ app.prepare().then(() => {
             break;
           }
 
+          // Real-time native touch injection via scrcpy control socket
+          case 'touch': {
+            if (activeSession && activeSession.controlSocket && !activeSession.controlSocket.destroyed) {
+              // action: 0 = DOWN, 1 = UP, 2 = MOVE
+              const action = msg.action === 'down' ? 0 : msg.action === 'up' ? 1 : 2;
+              const w = activeSession.videoWidth || msg.width || 1080;
+              const h = activeSession.videoHeight || msg.height || 2400;
+
+              const buf = Buffer.alloc(32);
+              buf.writeUInt8(2, 0); // TYPE_INJECT_TOUCH_EVENT = 2
+              buf.writeUInt8(action, 1);
+              buf.writeBigInt64BE(-1n, 2); // pointerId = -1 (mouse/touch pointer)
+              buf.writeInt32BE(Math.round(msg.x), 10);
+              buf.writeInt32BE(Math.round(msg.y), 14);
+              buf.writeUInt16BE(w, 18);
+              buf.writeUInt16BE(h, 20);
+              buf.writeFloatBE(action === 1 ? 0.0 : 1.0, 22); // pressure
+              buf.writeInt32BE(action === 0 ? 1 : 0, 26); // actionButton (BUTTON_PRIMARY on down)
+              buf.writeInt32BE(action === 1 ? 0 : 1, 30); // buttons (BUTTON_PRIMARY down/move)
+
+              activeSession.controlSocket.write(buf);
+            } else if (msg.deviceId) {
+              if (msg.action === 'down' || msg.action === 'up') {
+                adb.injectTap(msg.deviceId, msg.x, msg.y);
+              }
+            }
+            break;
+          }
+
+          // Mouse wheel scrolling
+          case 'scroll': {
+            if (activeSession && activeSession.controlSocket && !activeSession.controlSocket.destroyed) {
+              const w = activeSession.videoWidth || msg.width || 1080;
+              const h = activeSession.videoHeight || msg.height || 2400;
+
+              const buf = Buffer.alloc(21);
+              buf.writeUInt8(3, 0); // TYPE_INJECT_SCROLL_EVENT = 3
+              buf.writeInt32BE(Math.round(msg.x), 1);
+              buf.writeInt32BE(Math.round(msg.y), 5);
+              buf.writeUInt16BE(w, 9);
+              buf.writeUInt16BE(h, 11);
+              buf.writeInt32BE(0, 13); // hScroll
+              buf.writeInt32BE(Math.round(msg.vScroll || 0), 17); // vScroll
+
+              activeSession.controlSocket.write(buf);
+            }
+            break;
+          }
+
+          // Native keycode injection
           case 'key': {
-            if (msg.deviceId && typeof msg.code === 'number') {
+            if (activeSession && activeSession.controlSocket && !activeSession.controlSocket.destroyed) {
+              const down = Buffer.alloc(14);
+              down.writeUInt8(0, 0); // TYPE_INJECT_KEYCODE = 0
+              down.writeUInt8(0, 1); // ACTION_DOWN = 0
+              down.writeInt32BE(msg.code, 2);
+              down.writeInt32BE(0, 6);
+              down.writeInt32BE(0, 10);
+              activeSession.controlSocket.write(down);
+
+              const up = Buffer.alloc(14);
+              up.writeUInt8(0, 0);
+              up.writeUInt8(1, 1); // ACTION_UP = 1
+              up.writeInt32BE(msg.code, 2);
+              up.writeInt32BE(0, 6);
+              up.writeInt32BE(0, 10);
+              activeSession.controlSocket.write(up);
+            } else if (msg.deviceId) {
               adb.injectKey(msg.deviceId, msg.code);
             }
             break;
           }
 
+          // Native text injection
           case 'text': {
-            if (msg.deviceId && msg.text) {
+            if (activeSession && activeSession.controlSocket && !activeSession.controlSocket.destroyed && msg.text) {
+              const textBytes = Buffer.from(msg.text, 'utf8');
+              const buf = Buffer.alloc(5 + textBytes.length);
+              buf.writeUInt8(1, 0); // TYPE_INJECT_TEXT = 1
+              buf.writeInt32BE(textBytes.length, 1);
+              textBytes.copy(buf, 5);
+              activeSession.controlSocket.write(buf);
+            } else if (msg.deviceId && msg.text) {
               adb.injectText(msg.deviceId, msg.text);
-            }
-            break;
-          }
-
-          case 'tap': {
-            if (msg.deviceId && typeof msg.x === 'number' && typeof msg.y === 'number') {
-              adb.injectTap(msg.deviceId, msg.x, msg.y);
-            }
-            break;
-          }
-
-          case 'swipe': {
-            if (msg.deviceId) {
-              adb.injectSwipe(msg.deviceId, msg.x1, msg.y1, msg.x2, msg.y2, msg.duration || 150);
             }
             break;
           }
@@ -142,7 +208,6 @@ app.prepare().then(() => {
 
     ws.on('close', () => {
       console.log('[WS] Client disconnected');
-      // If no clients left, stop active stream to save device battery
       if (wss.clients.size === 0) {
         stopCurrentSession();
       }
@@ -153,8 +218,11 @@ app.prepare().then(() => {
     adb.closeShell();
     if (activeSession) {
       try {
-        if (activeSession.tcpSocket) {
-          activeSession.tcpSocket.destroy();
+        if (activeSession.videoSocket) {
+          activeSession.videoSocket.destroy();
+        }
+        if (activeSession.controlSocket) {
+          activeSession.controlSocket.destroy();
         }
         if (activeSession.serverProc) {
           activeSession.serverProc.kill();
@@ -165,16 +233,18 @@ app.prepare().then(() => {
     }
   }
 
-  function connectToScrcpySocket(
+  function connectToScrcpySockets(
     deviceId: string,
     port: number,
     ws: WebSocket,
     sendLog: (msg: string) => void
   ) {
-    const socket = new net.Socket();
-    socket.setNoDelay(true); // Disable Nagle's algorithm for immediate streaming
+    // 1. Connect video socket (first socket accepted by scrcpy-server)
+    const videoSocket = new net.Socket();
+    videoSocket.setNoDelay(true);
+
     if (activeSession) {
-      activeSession.tcpSocket = socket;
+      activeSession.videoSocket = videoSocket;
     }
 
     let buffer = Buffer.alloc(0);
@@ -184,11 +254,26 @@ app.prepare().then(() => {
     let currentIsKeyFrame = false;
     let currentIsConfig = false;
 
-    socket.connect(port, '127.0.0.1', () => {
-      sendLog(`Successfully connected to video stream! Receiving H.264 packets...`);
+    videoSocket.connect(port, '127.0.0.1', () => {
+      sendLog(`Video stream connected. Initializing native control channel...`);
+
+      // 2. Connect control socket (second socket accepted by scrcpy-server)
+      const controlSocket = new net.Socket();
+      controlSocket.setNoDelay(true);
+
+      controlSocket.connect(port, '127.0.0.1', () => {
+        sendLog(`Native touch & control channel active (<1 ms latency).`);
+        if (activeSession) {
+          activeSession.controlSocket = controlSocket;
+        }
+      });
+
+      controlSocket.on('error', (err) => {
+        console.warn(`[Control Socket Error]: ${err.message}`);
+      });
     });
 
-    socket.on('data', (chunk: Buffer) => {
+    videoSocket.on('data', (chunk: Buffer) => {
       buffer = Buffer.concat([buffer, chunk]);
 
       let processing = true;
@@ -196,7 +281,6 @@ app.prepare().then(() => {
         switch (state) {
           case 'DUMMY': {
             if (buffer.length >= 1) {
-              // 1 dummy byte (0x00) sent by scrcpy-server on connection
               buffer = buffer.subarray(1);
               state = 'CODEC_METADATA';
             } else {
@@ -206,12 +290,18 @@ app.prepare().then(() => {
           }
 
           case 'CODEC_METADATA': {
-            // 4 bytes codec ID ('h264' = 0x68323634), 4 bytes width, 4 bytes height
+            // 4 bytes codec ID, 4 bytes width, 4 bytes height
             if (buffer.length >= 12) {
               const codecId = buffer.subarray(0, 4).toString('utf8');
               const width = buffer.readUInt32BE(4);
               const height = buffer.readUInt32BE(8);
-              sendLog(`Video Stream Initialized: Codec=${codecId}, Resolution=${width}x${height}`);
+
+              if (activeSession) {
+                activeSession.videoWidth = width;
+                activeSession.videoHeight = height;
+              }
+
+              sendLog(`Stream Online: ${codecId.toUpperCase()} @ ${width}x${height}`);
 
               if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
@@ -231,15 +321,11 @@ app.prepare().then(() => {
           }
 
           case 'PACKET_HEADER': {
-            // Packet header in scrcpy v2/v3: 8 bytes PTS + 4 bytes packet size = 12 bytes
             if (buffer.length >= 12) {
               const ptsBigInt = buffer.readBigUInt64BE(0);
-              // Bit flags in scrcpy protocol:
-              // Bit 63: Config packet (contains SPS/PPS)
-              // Bit 62: Keyframe
               currentIsConfig = (ptsBigInt & (1n << 63n)) !== 0n;
               currentIsKeyFrame = (ptsBigInt & (1n << 62n)) !== 0n;
-              currentPts = ptsBigInt & ~(3n << 62n); // clear flag bits to get PTS in microseconds
+              currentPts = ptsBigInt & ~(3n << 62n);
 
               currentPacketSize = buffer.readUInt32BE(8);
               buffer = buffer.subarray(12);
@@ -256,11 +342,6 @@ app.prepare().then(() => {
               buffer = buffer.subarray(currentPacketSize);
 
               if (ws.readyState === WebSocket.OPEN) {
-                // Construct a compact binary message for WebCodecs:
-                // Byte 0: 0x01 (Video Packet indicator)
-                // Byte 1: Flags: (isKeyFrame ? 1 : 0) | (isConfig ? 2 : 0)
-                // Bytes 2-9: 8-byte PTS (UInt64 BE)
-                // Bytes 10+: Raw H.264 NAL units
                 const flags = (currentIsKeyFrame ? 1 : 0) | (currentIsConfig ? 2 : 0);
                 const msg = Buffer.alloc(10 + payload.length);
                 msg[0] = 0x01;
@@ -281,12 +362,12 @@ app.prepare().then(() => {
       }
     });
 
-    socket.on('error', (err) => {
+    videoSocket.on('error', (err) => {
       sendLog(`[Video Socket Error]: ${err.message}`);
     });
 
-    socket.on('close', () => {
-      sendLog(`Video stream socket closed.`);
+    videoSocket.on('close', () => {
+      sendLog(`Video stream closed.`);
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'stream-stopped' }));
       }

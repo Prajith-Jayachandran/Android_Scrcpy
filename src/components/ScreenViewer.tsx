@@ -1,13 +1,13 @@
 import React, { useRef, useState } from 'react';
-import { Smartphone, WifiOff } from 'lucide-react';
+import { Smartphone } from 'lucide-react';
 import { StreamMeta } from '../lib/types';
 
 interface ScreenViewerProps {
   canvasRef: React.RefObject<HTMLCanvasElement>;
   isStreaming: boolean;
   meta: StreamMeta | null;
-  onTap: (x: number, y: number) => void;
-  onSwipe: (x1: number, y1: number, x2: number, y2: number, duration: number) => void;
+  onTouch: (action: 'down' | 'move' | 'up', x: number, y: number) => void;
+  onScroll: (x: number, y: number, vScroll: number) => void;
   onSendKey: (keyCode: number) => void;
   onSendText: (text: string) => void;
 }
@@ -16,21 +16,23 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
   canvasRef,
   isStreaming,
   meta,
-  onTap,
-  onSwipe,
+  onTouch,
+  onScroll,
   onSendKey,
   onSendText,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const dragStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const isPointerDownRef = useRef(false);
   const [isFocused, setIsFocused] = useState(false);
 
-  // Map pointer coordinates from canvas pixel layout to device native resolution
+  // Pixel-perfect mapping from canvas client coordinates to stream resolution
   const mapCoordinates = (clientX: number, clientY: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
 
     const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return { x: 0, y: 0 };
+
     const relX = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     const relY = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
 
@@ -56,46 +58,41 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
       onSendKey(3);
       return;
     }
-
-    if (e.button !== 0) return; // Only track primary click
+    if (e.button !== 0) return; // Only track primary button
 
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch (err) {}
 
+    isPointerDownRef.current = true;
     const coords = mapCoordinates(e.clientX, e.clientY);
-    dragStartRef.current = {
-      x: coords.x,
-      y: coords.y,
-      time: Date.now(),
-    };
+    onTouch('down', coords.x, coords.y);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isStreaming || !isPointerDownRef.current) return;
+
+    const coords = mapCoordinates(e.clientX, e.clientY);
+    onTouch('move', coords.x, coords.y);
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isStreaming || !dragStartRef.current) return;
+    if (!isStreaming || !isPointerDownRef.current) return;
 
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
     } catch (err) {}
 
-    const start = dragStartRef.current;
-    const end = mapCoordinates(e.clientX, e.clientY);
+    isPointerDownRef.current = false;
+    const coords = mapCoordinates(e.clientX, e.clientY);
+    onTouch('up', coords.x, coords.y);
+  };
 
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-
-    // Deadzone: under 50 phone pixels (approx 15px monitor movement) is a precise tap.
-    // This prevents slight mouse click tremors from accidentally triggering a swipe.
-    if (distance < 50) {
-      onTap(start.x, start.y);
-    } else {
-      // Swiping: use a quick 150ms duration so Android's WindowManager recognizes a
-      // fast flick/scroll gesture rather than a long-press on an app icon!
-      onSwipe(start.x, start.y, end.x, end.y, 150);
-    }
-
-    dragStartRef.current = null;
+  const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
+    if (!isStreaming) return;
+    const coords = mapCoordinates(e.clientX, e.clientY);
+    const vScroll = e.deltaY < 0 ? 1 : -1;
+    onScroll(coords.x, coords.y, vScroll);
   };
 
   // Keyboard forwarding when canvas container is focused
@@ -138,7 +135,7 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
           </div>
         </div>
 
-        {/* Screen Display Container */}
+        {/* Screen Display Container - dynamic aspect ratio matching stream */}
         <div
           className="relative rounded-[2.4rem] bg-black overflow-hidden flex items-center justify-center shadow-inner border border-slate-800/80 transition-all"
           style={{
@@ -151,8 +148,10 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
           <canvas
             ref={canvasRef}
             onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
-            onPointerCancel={() => { dragStartRef.current = null; }}
+            onPointerCancel={handlePointerUp}
+            onWheel={handleWheel}
             onContextMenu={(e) => e.preventDefault()}
             className={`w-full h-full cursor-pointer touch-none transition-opacity duration-200 ${
               isStreaming ? 'opacity-100' : 'opacity-0 absolute pointer-events-none'
@@ -175,7 +174,7 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
               </div>
               <div className="flex items-center gap-2 text-[11px] text-slate-500 bg-slate-900/60 px-3 py-1.5 rounded-full border border-slate-800/60">
                 <span className="w-2 h-2 rounded-full bg-slate-600" />
-                <span>WebCodecs GPU Ready</span>
+                <span>Native Control Active</span>
               </div>
             </div>
           )}

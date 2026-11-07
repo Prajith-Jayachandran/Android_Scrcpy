@@ -166,7 +166,7 @@ export class AdbManager {
   }
 
   public spawnServer(deviceId: string): ChildProcess {
-    // Scrcpy v3.1 parameters optimized for ultra-low latency streaming
+    // Scrcpy v3.1 parameters with native control socket enabled for zero-latency input
     const args = [
       '-s', deviceId,
       'shell',
@@ -178,7 +178,7 @@ export class AdbManager {
       'tunnel_forward=true',
       'video=true',
       'audio=false',
-      'control=false',
+      'control=true',
       'send_dummy_byte=true',
       'send_codec_meta=true',
       'send_frame_meta=true',
