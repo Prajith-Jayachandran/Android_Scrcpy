@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { Smartphone } from 'lucide-react';
 import { StreamMeta } from '../lib/types';
 
@@ -23,7 +23,12 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const dragStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const lastCoordsRef = useRef<{ x: number; y: number } | null>(null);
   const [isFocused, setIsFocused] = useState(false);
+
+  const lastWheelTimeRef = useRef<number>(0);
+  const wheelAccumulatorRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
+  const wheelResetTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Exact 1:1 mapping from canvas click coordinates to physical device screen resolution
   const mapCoordinates = (clientX: number, clientY: number) => {
@@ -45,6 +50,80 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
       y: Math.round(relY * targetHeight),
     };
   };
+
+  // Two-finger mousepad / trackpad swipe support via non-passive wheel event
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !isStreaming) return;
+
+    const handleWheelNative = (e: WheelEvent) => {
+      // Prevent browser page from scrolling while swiping on the phone
+      e.preventDefault();
+
+      const now = Date.now();
+      // Enforce 160ms cooldown between swipes to allow Android fling animation to run cleanly
+      if (now - lastWheelTimeRef.current < 160) return;
+
+      wheelAccumulatorRef.current.dx += e.deltaX;
+      wheelAccumulatorRef.current.dy += e.deltaY;
+
+      if (wheelResetTimerRef.current) clearTimeout(wheelResetTimerRef.current);
+      wheelResetTimerRef.current = setTimeout(() => {
+        wheelAccumulatorRef.current = { dx: 0, dy: 0 };
+      }, 150);
+
+      const { dx, dy } = wheelAccumulatorRef.current;
+      const absX = Math.abs(dx);
+      const absY = Math.abs(dy);
+
+      // Minimum threshold before triggering swipe
+      if (absX < 20 && absY < 20) return;
+
+      lastWheelTimeRef.current = now;
+      wheelAccumulatorRef.current = { dx: 0, dy: 0 };
+
+      const coords = mapCoordinates(e.clientX, e.clientY);
+      const targetW = meta?.physicalWidth || 1080;
+      const targetH = meta?.physicalHeight || 2373;
+      const cx = Math.max(150, Math.min(targetW - 150, coords.x || targetW / 2));
+      const cy = Math.max(350, Math.min(targetH - 350, coords.y || targetH / 2));
+
+      if (absY >= absX) {
+        // Vertical swipe (Up / Down)
+        const swipeDist = Math.round(targetH * 0.28);
+        if (dy > 0) {
+          // Swiped UP on mousepad -> Scroll DOWN on phone
+          const startY = Math.min(targetH - 180, cy + Math.round(swipeDist / 2));
+          const endY = Math.max(180, cy - Math.round(swipeDist / 2));
+          onSwipe(cx, startY, cx, endY, 150);
+        } else {
+          // Swiped DOWN on mousepad -> Scroll UP on phone
+          const startY = Math.max(180, cy - Math.round(swipeDist / 2));
+          const endY = Math.min(targetH - 180, cy + Math.round(swipeDist / 2));
+          onSwipe(cx, startY, cx, endY, 150);
+        }
+      } else {
+        // Horizontal swipe (Left / Right)
+        const swipeDistX = Math.round(targetW * 0.50);
+        if (dx > 0) {
+          // Swiped LEFT on mousepad -> Scroll RIGHT on phone
+          const startX = Math.min(targetW - 80, cx + Math.round(swipeDistX / 2));
+          const endX = Math.max(80, cx - Math.round(swipeDistX / 2));
+          onSwipe(startX, cy, endX, cy, 150);
+        } else {
+          // Swiped RIGHT on mousepad -> Scroll LEFT on phone
+          const startX = Math.max(80, cx - Math.round(swipeDistX / 2));
+          const endX = Math.min(targetW - 80, cx + Math.round(swipeDistX / 2));
+          onSwipe(startX, cy, endX, cy, 150);
+        }
+      }
+    };
+
+    canvas.addEventListener('wheel', handleWheelNative, { passive: false });
+    return () => {
+      canvas.removeEventListener('wheel', handleWheelNative);
+    };
+  }, [isStreaming, meta, onSwipe]);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isStreaming) return;
@@ -71,6 +150,12 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
       y: coords.y,
       time: Date.now(),
     };
+    lastCoordsRef.current = coords;
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isStreaming || !dragStartRef.current) return;
+    lastCoordsRef.current = mapCoordinates(e.clientX, e.clientY);
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -81,23 +166,22 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
     } catch (err) {}
 
     const start = dragStartRef.current;
-    const end = mapCoordinates(e.clientX, e.clientY);
+    const end = lastCoordsRef.current || mapCoordinates(e.clientX, e.clientY);
 
     const dx = end.x - start.x;
     const dy = end.y - start.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
 
-    // Deadzone: under 40 physical pixels (~12-15 screen pixels) is a clean TAP.
-    // This prevents slight mouse click tremors from triggering unintended swipes.
-    if (distance < 40) {
+    // Deadzone: under 30 physical pixels is a clean TAP.
+    if (distance < 30) {
       onTap(start.x, start.y);
     } else {
-      // Clean 150ms swipe gesture recognized by Android WindowManager as a fast scroll fling,
-      // never triggering launcher long-press or app opening!
+      // Clean 150ms swipe gesture recognized by Android WindowManager as a fast scroll fling
       onSwipe(start.x, start.y, end.x, end.y, 150);
     }
 
     dragStartRef.current = null;
+    lastCoordsRef.current = null;
   };
 
   // Keyboard forwarding when canvas container is focused
@@ -153,8 +237,9 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
           <canvas
             ref={canvasRef}
             onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
-            onPointerCancel={() => { dragStartRef.current = null; }}
+            onPointerCancel={handlePointerUp}
             onContextMenu={(e) => e.preventDefault()}
             className={`w-full h-full cursor-pointer touch-none transition-opacity duration-200 ${
               isStreaming ? 'opacity-100' : 'opacity-0 absolute pointer-events-none'
