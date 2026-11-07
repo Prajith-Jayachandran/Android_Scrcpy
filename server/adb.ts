@@ -130,7 +130,7 @@ export class AdbManager {
   }
 
   public spawnServer(deviceId: string): ChildProcess {
-    // Scrcpy v3.1 arguments for headless streaming
+    // Scrcpy v3.1 explicit parameters for headless raw video streaming
     const args = [
       '-s', deviceId,
       'shell',
@@ -142,7 +142,11 @@ export class AdbManager {
       'tunnel_forward=true',
       'video=true',
       'audio=false',
-      'control=true',
+      'control=false',
+      'send_dummy_byte=true',
+      'send_codec_meta=true',
+      'send_frame_meta=true',
+      'send_device_meta=false',
       'max_size=1080',
       'video_bit_rate=8000000',
       'max_fps=60',

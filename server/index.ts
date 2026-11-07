@@ -172,7 +172,7 @@ app.prepare().then(() => {
     }
 
     let buffer = Buffer.alloc(0);
-    let state: 'DUMMY' | 'DEVICE_NAME' | 'CODEC_METADATA' | 'PACKET_HEADER' | 'PACKET_PAYLOAD' = 'DUMMY';
+    let state: 'DUMMY' | 'CODEC_METADATA' | 'PACKET_HEADER' | 'PACKET_PAYLOAD' = 'DUMMY';
     let currentPts = 0n;
     let currentPacketSize = 0;
     let currentIsKeyFrame = false;
@@ -190,21 +190,8 @@ app.prepare().then(() => {
         switch (state) {
           case 'DUMMY': {
             if (buffer.length >= 1) {
-              // 1 dummy byte (0x00)
+              // 1 dummy byte (0x00) sent by scrcpy-server on connection
               buffer = buffer.subarray(1);
-              state = 'DEVICE_NAME';
-            } else {
-              processing = false;
-            }
-            break;
-          }
-
-          case 'DEVICE_NAME': {
-            if (buffer.length >= 64) {
-              const devNameBytes = buffer.subarray(0, 64);
-              const devName = devNameBytes.toString('utf8').replace(/\0/g, '');
-              sendLog(`Device Name: ${devName}`);
-              buffer = buffer.subarray(64);
               state = 'CODEC_METADATA';
             } else {
               processing = false;
@@ -218,7 +205,7 @@ app.prepare().then(() => {
               const codecId = buffer.subarray(0, 4).toString('utf8');
               const width = buffer.readUInt32BE(4);
               const height = buffer.readUInt32BE(8);
-              sendLog(`Video Stream Ready: Codec=${codecId}, Resolution=${width}x${height}`);
+              sendLog(`Video Stream Initialized: Codec=${codecId}, Resolution=${width}x${height}`);
 
               if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
@@ -241,12 +228,12 @@ app.prepare().then(() => {
             // Packet header in scrcpy v2/v3: 8 bytes PTS + 4 bytes packet size = 12 bytes
             if (buffer.length >= 12) {
               const ptsBigInt = buffer.readBigUInt64BE(0);
-              // Bits flags in scrcpy:
-              // Bit 63: Config packet (SPS/PPS)
+              // Bit flags in scrcpy protocol:
+              // Bit 63: Config packet (contains SPS/PPS)
               // Bit 62: Keyframe
               currentIsConfig = (ptsBigInt & (1n << 63n)) !== 0n;
               currentIsKeyFrame = (ptsBigInt & (1n << 62n)) !== 0n;
-              currentPts = ptsBigInt & ~(3n << 62n); // clear flag bits
+              currentPts = ptsBigInt & ~(3n << 62n); // clear flag bits to get PTS in microseconds
 
               currentPacketSize = buffer.readUInt32BE(8);
               buffer = buffer.subarray(12);
@@ -265,12 +252,13 @@ app.prepare().then(() => {
               if (ws.readyState === WebSocket.OPEN) {
                 // Construct a compact binary message for WebCodecs:
                 // Byte 0: 0x01 (Video Packet indicator)
-                // Byte 1: 1 if keyframe or config, 0 otherwise
+                // Byte 1: Flags: (isKeyFrame ? 1 : 0) | (isConfig ? 2 : 0)
                 // Bytes 2-9: 8-byte PTS (UInt64 BE)
                 // Bytes 10+: Raw H.264 NAL units
+                const flags = (currentIsKeyFrame ? 1 : 0) | (currentIsConfig ? 2 : 0);
                 const msg = Buffer.alloc(10 + payload.length);
                 msg[0] = 0x01;
-                msg[1] = (currentIsKeyFrame || currentIsConfig) ? 1 : 0;
+                msg[1] = flags;
                 msg.writeBigUInt64BE(currentPts, 2);
                 payload.copy(msg, 10);
 

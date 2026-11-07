@@ -7,6 +7,33 @@ interface UseWebCodecsOptions {
   onFpsUpdate?: (fps: number) => void;
 }
 
+// Helper: Extract AVC profile from SPS NAL unit (type 7)
+function extractH264Codec(payload: Uint8Array): string {
+  for (let i = 0; i < payload.length - 4; i++) {
+    if (payload[i] === 0 && payload[i + 1] === 0) {
+      let nalStart = -1;
+      if (payload[i + 2] === 1) {
+        nalStart = i + 3;
+      } else if (payload[i + 2] === 0 && payload[i + 3] === 1) {
+        nalStart = i + 4;
+      }
+
+      if (nalStart !== -1 && nalStart + 3 < payload.length) {
+        const nalType = payload[nalStart] & 0x1f;
+        if (nalType === 7) {
+          // SPS NAL unit found
+          const profile = payload[nalStart + 1].toString(16).padStart(2, '0');
+          const constraint = payload[nalStart + 2].toString(16).padStart(2, '0');
+          const level = payload[nalStart + 3].toString(16).padStart(2, '0');
+          return `avc1.${profile}${constraint}${level}`;
+        }
+      }
+    }
+  }
+  // High Profile Level 4.2 default fallback (supports 1080p 60fps)
+  return 'avc1.64002a';
+}
+
 export function useWebCodecs({ canvasRef, meta, onFpsUpdate }: UseWebCodecsOptions) {
   const decoderRef = useRef<VideoDecoder | null>(null);
   const [isReady, setIsReady] = useState(false);
@@ -14,6 +41,8 @@ export function useWebCodecs({ canvasRef, meta, onFpsUpdate }: UseWebCodecsOptio
   const hasKeyframeRef = useRef(false);
   const frameCountRef = useRef(0);
   const lastFpsTimeRef = useRef(Date.now());
+  const spsPpsRef = useRef<Uint8Array | null>(null);
+  const currentCodecRef = useRef<string>('avc1.64002a');
 
   // FPS calculation interval
   useEffect(() => {
@@ -31,7 +60,7 @@ export function useWebCodecs({ canvasRef, meta, onFpsUpdate }: UseWebCodecsOptio
     return () => clearInterval(timer);
   }, [onFpsUpdate]);
 
-  const initDecoder = useCallback(() => {
+  const configureDecoder = useCallback((codecString: string) => {
     if (typeof window === 'undefined' || !('VideoDecoder' in window)) {
       setError('WebCodecs API is not supported in this browser.');
       return;
@@ -43,6 +72,7 @@ export function useWebCodecs({ canvasRef, meta, onFpsUpdate }: UseWebCodecsOptio
       }
 
       hasKeyframeRef.current = false;
+      currentCodecRef.current = codecString;
 
       const decoder = new VideoDecoder({
         output: (frame: VideoFrame) => {
@@ -58,17 +88,19 @@ export function useWebCodecs({ canvasRef, meta, onFpsUpdate }: UseWebCodecsOptio
             }
           }
           frameCountRef.current++;
-          frame.close(); // Free hardware buffer
+          frame.close(); // Crucial: free GPU hardware buffer
         },
         error: (e) => {
-          console.warn('[WebCodecs Decoder warning/error]:', e);
+          console.warn('[WebCodecs Decoder error]:', e);
         }
       });
 
-      // Configure decoder for H.264 Annex B stream
+      // Configure decoder with Annex B format
       decoder.configure({
-        codec: 'avc1.42001f', // H.264 Baseline Profile Level 3.1
-        optimizeForLatency: true
+        codec: codecString,
+        optimizeForLatency: true,
+        // @ts-ignore - avc annexb format spec
+        avc: { format: 'annexb' }
       });
 
       decoderRef.current = decoder;
@@ -81,42 +113,77 @@ export function useWebCodecs({ canvasRef, meta, onFpsUpdate }: UseWebCodecsOptio
   }, [canvasRef]);
 
   useEffect(() => {
-    initDecoder();
+    configureDecoder('avc1.64002a');
     return () => {
       if (decoderRef.current && decoderRef.current.state !== 'closed') {
         decoderRef.current.close();
       }
     };
-  }, [initDecoder]);
+  }, [configureDecoder]);
 
-  const decodeChunk = useCallback((payload: Uint8Array, isKeyFrame: boolean, ptsMicros: number) => {
-    if (!decoderRef.current || decoderRef.current.state !== 'configured') {
-      return;
-    }
+  const decodeChunk = useCallback(
+    (payload: Uint8Array, isKeyFrame: boolean, isConfig: boolean, ptsMicros: number) => {
+      // 1. Handle SPS/PPS configuration packet
+      if (isConfig) {
+        spsPpsRef.current = payload;
+        const detectedCodec = extractH264Codec(payload);
+        if (detectedCodec !== currentCodecRef.current) {
+          configureDecoder(detectedCodec);
+        }
+        return; // Don't decode config packets standalone
+      }
 
-    // Must wait for the initial keyframe containing SPS/PPS
-    if (!hasKeyframeRef.current) {
-      if (!isKeyFrame) {
+      if (!decoderRef.current || decoderRef.current.state !== 'configured') {
         return;
       }
-      hasKeyframeRef.current = true;
-    }
 
-    try {
-      const chunk = new EncodedVideoChunk({
-        type: isKeyFrame ? 'key' : 'delta',
-        timestamp: ptsMicros,
-        data: payload
-      });
-      decoderRef.current.decode(chunk);
-    } catch (err) {
-      console.warn('Decode chunk dropped:', err);
-    }
-  }, []);
+      // 2. Handle Keyframe
+      if (isKeyFrame) {
+        try {
+          // Prepend SPS/PPS to the keyframe so VideoDecoder has parameter sets
+          let chunkData = payload;
+          if (spsPpsRef.current) {
+            const combined = new Uint8Array(spsPpsRef.current.length + payload.length);
+            combined.set(spsPpsRef.current, 0);
+            combined.set(payload, spsPpsRef.current.length);
+            chunkData = combined;
+          }
+
+          const chunk = new EncodedVideoChunk({
+            type: 'key',
+            timestamp: ptsMicros,
+            data: chunkData
+          });
+          decoderRef.current.decode(chunk);
+          hasKeyframeRef.current = true;
+        } catch (err) {
+          console.warn('Keyframe decode error:', err);
+        }
+        return;
+      }
+
+      // 3. Handle Delta Frame (only decode if initial keyframe was processed)
+      if (hasKeyframeRef.current) {
+        try {
+          const chunk = new EncodedVideoChunk({
+            type: 'delta',
+            timestamp: ptsMicros,
+            data: payload
+          });
+          decoderRef.current.decode(chunk);
+        } catch (err) {
+          console.warn('Delta frame decode error:', err);
+        }
+      }
+    },
+    [configureDecoder]
+  );
 
   const resetDecoder = useCallback(() => {
-    initDecoder();
-  }, [initDecoder]);
+    spsPpsRef.current = null;
+    hasKeyframeRef.current = false;
+    configureDecoder('avc1.64002a');
+  }, [configureDecoder]);
 
   return { isReady, error, decodeChunk, resetDecoder };
 }

@@ -60,12 +60,14 @@ export default function Home() {
         const view = new Uint8Array(event.data);
         if (view[0] === 0x01) {
           // Video packet
-          const isKeyFrame = view[1] === 1;
+          const flags = view[1];
+          const isKeyFrame = (flags & 0x01) !== 0;
+          const isConfig = (flags & 0x02) !== 0;
           const dataView = new DataView(event.data);
           const pts = Number(dataView.getBigUint64(2, false));
           const naluPayload = view.subarray(10);
 
-          decodeChunk(naluPayload, isKeyFrame, pts);
+          decodeChunk(naluPayload, isKeyFrame, isConfig, pts);
         }
         return;
       }
