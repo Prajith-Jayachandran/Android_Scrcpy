@@ -6,9 +6,10 @@ import { ControlsSidebar } from '@/components/ControlsSidebar';
 import { ScreenViewer } from '@/components/ScreenViewer';
 import { DiagnosticsPanel } from '@/components/DiagnosticsPanel';
 import { LogsConsole } from '@/components/LogsConsole';
+import { CursorTrail } from '@/components/CursorTrail';
 import { useWebCodecs } from '@/hooks/useWebCodecs';
 import { DeviceInfo, StreamMeta, LogMessage } from '@/lib/types';
-import { Cast, Sparkles } from 'lucide-react';
+import { Cast, Sparkles, ShieldCheck, Zap } from 'lucide-react';
 
 export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -216,24 +217,54 @@ export default function Home() {
   };
 
   return (
-    <main className="flex h-screen w-screen bg-[#07090e] overflow-hidden text-slate-100 font-sans">
-      {/* Left Sidebar */}
-      <aside className="w-[340px] flex-shrink-0 border-r border-slate-800/80 bg-slate-950/70 p-5 flex flex-col gap-5 overflow-y-auto">
-        {/* Brand Header */}
-        <div className="flex items-center gap-3 pb-2 border-b border-slate-800/80">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/25">
-            <Cast className="w-5 h-5 text-white" />
+    <main className="relative flex h-screen w-screen bg-[#04060c] overflow-hidden text-slate-100 font-sans select-none">
+      {/* Interactive Glowing Cursor Trail & Spotlight Canvas */}
+      <CursorTrail />
+
+      {/* 3D Ambient Glowing Mesh Background Orbs */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
+        {/* Orb 1: Violet/Indigo Top-Center */}
+        <div className="absolute -top-32 left-1/3 w-[550px] h-[550px] rounded-full bg-gradient-to-br from-indigo-600/20 via-purple-600/15 to-transparent blur-[120px] animate-float-1" />
+        {/* Orb 2: Cyan/Emerald Bottom-Right */}
+        <div className="absolute -bottom-40 right-10 w-[600px] h-[600px] rounded-full bg-gradient-to-tr from-cyan-600/15 via-indigo-600/10 to-transparent blur-[140px] animate-float-2" />
+        {/* Orb 3: Deep Magenta Bottom-Left */}
+        <div className="absolute -bottom-20 -left-20 w-[450px] h-[450px] rounded-full bg-gradient-to-tr from-fuchsia-600/15 to-transparent blur-[100px] animate-float-3" />
+
+        {/* Subtle Spatial Cyber Grid Lines */}
+        <div
+          className="absolute inset-0 opacity-[0.035]"
+          style={{
+            backgroundImage:
+              'linear-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.1) 1px, transparent 1px)',
+            backgroundSize: '48px 48px',
+          }}
+        />
+      </div>
+
+      {/* Left Frosted Glass Sidebar */}
+      <aside className="w-[360px] flex-shrink-0 ultra-glass p-5 flex flex-col gap-4 overflow-y-auto z-10 border-r border-white/10">
+        {/* Futuristic Brand Header */}
+        <div className="flex items-center gap-3.5 pb-3 border-b border-white/10">
+          <div className="relative w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-[0_0_25px_rgba(99,102,241,0.4)]">
+            <Cast className="w-5 h-5 text-white drop-shadow-md" />
+            <div className="absolute inset-0 rounded-2xl bg-white/20 blur-[2px] pointer-events-none" />
           </div>
-          <div>
-            <h1 className="text-base font-bold tracking-tight text-white flex items-center gap-1.5">
-              <span>Android Mirror</span>
-              <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+          <div className="flex flex-col">
+            <h1 className="text-base font-extrabold tracking-tight text-white flex items-center gap-2">
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-white via-indigo-100 to-indigo-300">
+                Aether Mirror
+              </span>
+              <span className="px-1.5 py-0.5 text-[9px] font-mono font-bold bg-indigo-500/20 text-indigo-300 rounded border border-indigo-500/30">
+                3D PRO
+              </span>
             </h1>
-            <p className="text-xs text-slate-400">Pure WebCodecs • 60 FPS</p>
+            <p className="text-[11px] text-slate-400 font-medium">
+              Ultra-Realistic Glassmorphic Engine
+            </p>
           </div>
         </div>
 
-        {/* Device Manager */}
+        {/* Device Manager Glass Card */}
         <DeviceManager
           devices={devices}
           selectedDeviceId={selectedDeviceId}
@@ -245,23 +276,34 @@ export default function Home() {
           onStopStream={stopStream}
         />
 
-        {/* Live Diagnostics */}
+        {/* Live Diagnostics Glass Card */}
         <DiagnosticsPanel fps={fps} meta={streamMeta} isStreaming={isStreaming} />
 
-        {/* Instructions Card */}
-        <div className="mt-auto bg-slate-900/40 border border-slate-800/60 rounded-xl p-3.5 text-xs text-slate-400">
-          <p className="font-semibold text-slate-300 mb-1">Quick Note:</p>
-          <ul className="list-disc list-inside space-y-1 text-slate-400">
-            <li>Ensure USB Debugging is turned ON.</li>
-            <li>Direct clicks emulate accurate physical taps.</li>
-            <li>Mouse drag flings and scrolls smoothly.</li>
-            <li>Right click triggers the Back button.</li>
+        {/* Interactive Gesture Guide */}
+        <div className="mt-auto ultra-glass-card rounded-2xl p-4 text-xs text-slate-300">
+          <div className="flex items-center gap-1.5 font-bold text-white mb-2 text-[11px] tracking-wide uppercase">
+            <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Interactive Controls</span>
+          </div>
+          <ul className="space-y-1.5 text-[11px] text-slate-400">
+            <li className="flex items-center gap-1.5">
+              <span className="w-1 h-1 rounded-full bg-indigo-400" />
+              <span>Two-finger trackpad swipe scrolls smoothly</span>
+            </li>
+            <li className="flex items-center gap-1.5">
+              <span className="w-1 h-1 rounded-full bg-cyan-400" />
+              <span>Click & drag across screen to fling</span>
+            </li>
+            <li className="flex items-center gap-1.5">
+              <span className="w-1 h-1 rounded-full bg-purple-400" />
+              <span>Right click triggers Back button</span>
+            </li>
           </ul>
         </div>
       </aside>
 
-      {/* Main Viewport: Screen Viewer */}
-      <section className="flex-1 flex items-center justify-center p-6 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900/40 via-[#07090e] to-[#040609] overflow-hidden">
+      {/* Main Viewport: 3D Perspective Stage */}
+      <section className="flex-1 flex items-center justify-center p-6 relative overflow-hidden z-10">
         <ScreenViewer
           canvasRef={canvasRef}
           isStreaming={isStreaming}
@@ -273,16 +315,16 @@ export default function Home() {
         />
       </section>
 
-      {/* Right Sidebar */}
-      <aside className="w-[350px] flex-shrink-0 border-l border-slate-800/80 bg-slate-950/70 p-5 flex flex-col gap-5 overflow-y-auto">
-        {/* Controls */}
+      {/* Right Frosted Glass Sidebar */}
+      <aside className="w-[360px] flex-shrink-0 ultra-glass p-5 flex flex-col gap-4 overflow-y-auto z-10 border-l border-white/10">
+        {/* Hardware & Navigation Controls */}
         <ControlsSidebar
           isStreaming={isStreaming}
           onSendKey={sendKey}
           onSendText={sendText}
         />
 
-        {/* System Logs */}
+        {/* Cyberpunk Glass Console */}
         <LogsConsole logs={logs} onClearLogs={() => setLogs([])} />
       </aside>
     </main>

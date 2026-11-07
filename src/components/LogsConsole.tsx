@@ -1,3 +1,5 @@
+'use client';
+
 import React, { useEffect, useRef } from 'react';
 import { Terminal, Trash2 } from 'lucide-react';
 import { LogMessage } from '../lib/types';
@@ -17,30 +19,31 @@ export const LogsConsole: React.FC<LogsConsoleProps> = ({ logs, onClearLogs }) =
   }, [logs]);
 
   return (
-    <div className="bg-slate-900/60 backdrop-blur-md border border-slate-800/80 rounded-2xl p-4 shadow-xl flex flex-col flex-1 min-h-[180px]">
-      <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800/60">
+    <div className="ultra-glass-card rounded-2xl p-4 flex flex-col flex-1 min-h-[180px] relative overflow-hidden">
+      <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-800/80">
         <div className="flex items-center gap-2">
-          <Terminal className="w-4 h-4 text-slate-400" />
-          <h3 className="text-xs font-semibold tracking-wider uppercase text-slate-400">
-            System Logs
+          <Terminal className="w-3.5 h-3.5 text-indigo-400" />
+          <h3 className="text-xs font-bold tracking-wider uppercase text-slate-200">
+            Console Stream
           </h3>
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
         </div>
         <button
           onClick={onClearLogs}
-          className="text-xs text-slate-500 hover:text-slate-300 transition flex items-center gap-1"
+          className="text-[11px] text-slate-400 hover:text-slate-200 transition-colors flex items-center gap-1 px-2 py-0.5 rounded-md hover:bg-slate-800/60"
           title="Clear Console"
         >
-          <Trash2 className="w-3.5 h-3.5" />
+          <Trash2 className="w-3 h-3" />
           <span>Clear</span>
         </button>
       </div>
 
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto font-mono text-[11px] leading-relaxed flex flex-col gap-1 pr-1 max-h-[220px]"
+        className="flex-1 overflow-y-auto font-mono text-[11px] leading-relaxed flex flex-col gap-1 pr-1 max-h-[220px] scrollbar-thin select-text"
       >
         {logs.length === 0 ? (
-          <div className="text-slate-600 italic">No logs recorded yet.</div>
+          <div className="text-slate-600 italic">Waiting for pipeline events...</div>
         ) : (
           logs.map((log) => {
             const isError = log.message.toLowerCase().includes('error') || log.message.toLowerCase().includes('fail');
@@ -51,13 +54,13 @@ export const LogsConsole: React.FC<LogsConsoleProps> = ({ logs, onClearLogs }) =
                 key={log.id}
                 className={`break-all ${
                   isError
-                    ? 'text-red-400'
+                    ? 'text-rose-400'
                     : isSystem
-                    ? 'text-indigo-400'
+                    ? 'text-cyan-300'
                     : 'text-slate-400'
                 }`}
               >
-                <span className="text-slate-600 mr-1.5">
+                <span className="text-slate-500 mr-1.5 font-normal">
                   [{new Date(log.timestamp).toLocaleTimeString()}]
                 </span>
                 {log.message}
