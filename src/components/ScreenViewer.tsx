@@ -6,8 +6,8 @@ interface ScreenViewerProps {
   canvasRef: React.RefObject<HTMLCanvasElement>;
   isStreaming: boolean;
   meta: StreamMeta | null;
-  onTouch: (action: 'down' | 'move' | 'up', x: number, y: number) => void;
-  onScroll: (x: number, y: number, vScroll: number) => void;
+  onTap: (x: number, y: number) => void;
+  onSwipe: (x1: number, y1: number, x2: number, y2: number, duration: number) => void;
   onSendKey: (keyCode: number) => void;
   onSendText: (text: string) => void;
 }
@@ -16,16 +16,16 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
   canvasRef,
   isStreaming,
   meta,
-  onTouch,
-  onScroll,
+  onTap,
+  onSwipe,
   onSendKey,
   onSendText,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const isPointerDownRef = useRef(false);
+  const dragStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
   const [isFocused, setIsFocused] = useState(false);
 
-  // Pixel-perfect mapping from canvas client coordinates to stream resolution
+  // Exact 1:1 mapping from canvas click coordinates to physical device screen resolution
   const mapCoordinates = (clientX: number, clientY: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
@@ -36,8 +36,9 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
     const relX = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     const relY = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
 
-    const targetWidth = meta?.width || 1080;
-    const targetHeight = meta?.height || 2400;
+    // Target the phone's physical hardware screen resolution (e.g. 1080x2373)
+    const targetWidth = meta?.physicalWidth || 1080;
+    const targetHeight = meta?.physicalHeight || 2373;
 
     return {
       x: Math.round(relX * targetWidth),
@@ -58,41 +59,45 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
       onSendKey(3);
       return;
     }
-    if (e.button !== 0) return; // Only track primary button
+    if (e.button !== 0) return; // Only track primary click
 
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch (err) {}
 
-    isPointerDownRef.current = true;
     const coords = mapCoordinates(e.clientX, e.clientY);
-    onTouch('down', coords.x, coords.y);
-  };
-
-  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isStreaming || !isPointerDownRef.current) return;
-
-    const coords = mapCoordinates(e.clientX, e.clientY);
-    onTouch('move', coords.x, coords.y);
+    dragStartRef.current = {
+      x: coords.x,
+      y: coords.y,
+      time: Date.now(),
+    };
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isStreaming || !isPointerDownRef.current) return;
+    if (!isStreaming || !dragStartRef.current) return;
 
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
     } catch (err) {}
 
-    isPointerDownRef.current = false;
-    const coords = mapCoordinates(e.clientX, e.clientY);
-    onTouch('up', coords.x, coords.y);
-  };
+    const start = dragStartRef.current;
+    const end = mapCoordinates(e.clientX, e.clientY);
 
-  const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
-    if (!isStreaming) return;
-    const coords = mapCoordinates(e.clientX, e.clientY);
-    const vScroll = e.deltaY < 0 ? 1 : -1;
-    onScroll(coords.x, coords.y, vScroll);
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    // Deadzone: under 40 physical pixels (~12-15 screen pixels) is a clean TAP.
+    // This prevents slight mouse click tremors from triggering unintended swipes.
+    if (distance < 40) {
+      onTap(start.x, start.y);
+    } else {
+      // Clean 150ms swipe gesture recognized by Android WindowManager as a fast scroll fling,
+      // never triggering launcher long-press or app opening!
+      onSwipe(start.x, start.y, end.x, end.y, 150);
+    }
+
+    dragStartRef.current = null;
   };
 
   // Keyboard forwarding when canvas container is focused
@@ -135,12 +140,12 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
           </div>
         </div>
 
-        {/* Screen Display Container - dynamic aspect ratio matching stream */}
+        {/* Screen Display Container - dynamic aspect ratio matching physical screen */}
         <div
           className="relative rounded-[2.4rem] bg-black overflow-hidden flex items-center justify-center shadow-inner border border-slate-800/80 transition-all"
           style={{
             height: 'min(76vh, 740px)',
-            aspectRatio: meta ? `${meta.width} / ${meta.height}` : '9 / 19.5',
+            aspectRatio: meta ? `${meta.physicalWidth || meta.width} / ${meta.physicalHeight || meta.height}` : '9 / 19.5',
             maxWidth: '100%',
           }}
         >
@@ -148,10 +153,8 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
           <canvas
             ref={canvasRef}
             onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerUp}
-            onWheel={handleWheel}
+            onPointerCancel={() => { dragStartRef.current = null; }}
             onContextMenu={(e) => e.preventDefault()}
             className={`w-full h-full cursor-pointer touch-none transition-opacity duration-200 ${
               isStreaming ? 'opacity-100' : 'opacity-0 absolute pointer-events-none'
@@ -169,12 +172,12 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
                   Ready to Mirror
                 </h3>
                 <p className="text-xs text-slate-400 max-w-[240px] leading-relaxed">
-                  Select an authorized device and click <strong className="text-indigo-400">Start Mirror</strong> to launch the 60 FPS hardware stream.
+                  Select an authorized device and click <strong className="text-indigo-400">Start Mirror</strong> to launch the safe 60 FPS stream.
                 </p>
               </div>
               <div className="flex items-center gap-2 text-[11px] text-slate-500 bg-slate-900/60 px-3 py-1.5 rounded-full border border-slate-800/60">
-                <span className="w-2 h-2 rounded-full bg-slate-600" />
-                <span>Native Control Active</span>
+                <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span>Safe Hardware Mode Active</span>
               </div>
             </div>
           )}

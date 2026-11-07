@@ -17,10 +17,7 @@ interface StreamSession {
   deviceId: string;
   serverProc: any;
   videoSocket: net.Socket | null;
-  controlSocket: net.Socket | null;
   forwardPort: number;
-  videoWidth: number;
-  videoHeight: number;
 }
 
 let activeSession: StreamSession | null = null;
@@ -34,7 +31,7 @@ app.prepare().then(() => {
   const wss = new WebSocketServer({
     server,
     path: '/ws',
-    perMessageDeflate: false // Disable compression for real-time lowest latency
+    perMessageDeflate: false
   });
 
   wss.on('connection', (ws: WebSocket) => {
@@ -65,7 +62,7 @@ app.prepare().then(() => {
 
             sendLog(`Preparing stream for device: ${deviceId}...`);
 
-            // Stop existing session if active
+            // Clean up any existing sessions or zombie processes on Android
             stopCurrentSession();
             await adb.killAllScrcpyServers(deviceId);
 
@@ -85,25 +82,22 @@ app.prepare().then(() => {
               return;
             }
 
-            // 3. Spawn server on device with control channel enabled
-            sendLog(`Spawning scrcpy-server process on Android...`);
+            // 3. Spawn safe server process on device
+            sendLog(`Spawning safe scrcpy-server on Android...`);
             const proc = adb.spawnServer(deviceId);
 
             activeSession = {
               deviceId,
               serverProc: proc,
               videoSocket: null,
-              controlSocket: null,
-              forwardPort: FORWARD_PORT,
-              videoWidth: 1080,
-              videoHeight: 2400
+              forwardPort: FORWARD_PORT
             };
 
-            // 4. Connect sockets
+            // 4. Connect video stream socket
             setTimeout(() => {
-              sendLog(`Connecting video and native control channels...`);
-              connectToScrcpySockets(deviceId, FORWARD_PORT, ws, sendLog);
-            }, 1200);
+              sendLog(`Connecting to video stream...`);
+              connectToScrcpyVideo(deviceId, FORWARD_PORT, ws, sendLog);
+            }, 1000);
             break;
           }
 
@@ -114,89 +108,31 @@ app.prepare().then(() => {
             break;
           }
 
-          // Real-time native touch injection via scrcpy control socket
-          case 'touch': {
-            if (activeSession && activeSession.controlSocket && !activeSession.controlSocket.destroyed) {
-              // action: 0 = DOWN, 1 = UP, 2 = MOVE
-              const action = msg.action === 'down' ? 0 : msg.action === 'up' ? 1 : 2;
-              const w = activeSession.videoWidth || msg.width || 1080;
-              const h = activeSession.videoHeight || msg.height || 2400;
-
-              const buf = Buffer.alloc(32);
-              buf.writeUInt8(2, 0); // TYPE_INJECT_TOUCH_EVENT = 2
-              buf.writeUInt8(action, 1);
-              buf.writeBigInt64BE(0n, 2); // pointerId = 0 (Finger 0, safe standard touch)
-              buf.writeInt32BE(Math.round(msg.x), 10);
-              buf.writeInt32BE(Math.round(msg.y), 14);
-              buf.writeUInt16BE(w, 18);
-              buf.writeUInt16BE(h, 20);
-              buf.writeFloatBE(action === 1 ? 0.0 : 1.0, 22); // pressure
-              buf.writeInt32BE(action === 0 ? 1 : 0, 26); // actionButton (BUTTON_PRIMARY on down)
-              buf.writeInt32BE(action === 1 ? 0 : 1, 30); // buttons (BUTTON_PRIMARY down/move)
-
-              activeSession.controlSocket.write(buf);
-            } else if (msg.deviceId) {
-              if (msg.action === 'down' || msg.action === 'up') {
-                adb.injectTap(msg.deviceId, msg.x, msg.y);
-              }
+          // Safe, physical-pixel accurate touch tap
+          case 'tap': {
+            if (msg.deviceId && typeof msg.x === 'number' && typeof msg.y === 'number') {
+              adb.injectTap(msg.deviceId, msg.x, msg.y);
             }
             break;
           }
 
-          // Mouse wheel scrolling
-          case 'scroll': {
-            if (activeSession && activeSession.controlSocket && !activeSession.controlSocket.destroyed) {
-              const w = activeSession.videoWidth || msg.width || 1080;
-              const h = activeSession.videoHeight || msg.height || 2400;
-
-              const buf = Buffer.alloc(21);
-              buf.writeUInt8(3, 0); // TYPE_INJECT_SCROLL_EVENT = 3
-              buf.writeInt32BE(Math.round(msg.x), 1);
-              buf.writeInt32BE(Math.round(msg.y), 5);
-              buf.writeUInt16BE(w, 9);
-              buf.writeUInt16BE(h, 11);
-              buf.writeInt32BE(0, 13); // hScroll
-              buf.writeInt32BE(Math.round(msg.vScroll || 0), 17); // vScroll
-
-              activeSession.controlSocket.write(buf);
+          // Safe, optimal 150ms swipe flick
+          case 'swipe': {
+            if (msg.deviceId) {
+              adb.injectSwipe(msg.deviceId, msg.x1, msg.y1, msg.x2, msg.y2, msg.duration || 150);
             }
             break;
           }
 
-          // Native keycode injection
           case 'key': {
-            if (activeSession && activeSession.controlSocket && !activeSession.controlSocket.destroyed) {
-              const down = Buffer.alloc(14);
-              down.writeUInt8(0, 0); // TYPE_INJECT_KEYCODE = 0
-              down.writeUInt8(0, 1); // ACTION_DOWN = 0
-              down.writeInt32BE(msg.code, 2);
-              down.writeInt32BE(0, 6);
-              down.writeInt32BE(0, 10);
-              activeSession.controlSocket.write(down);
-
-              const up = Buffer.alloc(14);
-              up.writeUInt8(0, 0);
-              up.writeUInt8(1, 1); // ACTION_UP = 1
-              up.writeInt32BE(msg.code, 2);
-              up.writeInt32BE(0, 6);
-              up.writeInt32BE(0, 10);
-              activeSession.controlSocket.write(up);
-            } else if (msg.deviceId) {
+            if (msg.deviceId && typeof msg.code === 'number') {
               adb.injectKey(msg.deviceId, msg.code);
             }
             break;
           }
 
-          // Native text injection
           case 'text': {
-            if (activeSession && activeSession.controlSocket && !activeSession.controlSocket.destroyed && msg.text) {
-              const textBytes = Buffer.from(msg.text, 'utf8');
-              const buf = Buffer.alloc(5 + textBytes.length);
-              buf.writeUInt8(1, 0); // TYPE_INJECT_TEXT = 1
-              buf.writeInt32BE(textBytes.length, 1);
-              textBytes.copy(buf, 5);
-              activeSession.controlSocket.write(buf);
-            } else if (msg.deviceId && msg.text) {
+            if (msg.deviceId && msg.text) {
               adb.injectText(msg.deviceId, msg.text);
             }
             break;
@@ -223,9 +159,6 @@ app.prepare().then(() => {
         if (activeSession.videoSocket) {
           activeSession.videoSocket.destroy();
         }
-        if (activeSession.controlSocket) {
-          activeSession.controlSocket.destroy();
-        }
         if (activeSession.serverProc) {
           activeSession.serverProc.kill();
         }
@@ -236,18 +169,17 @@ app.prepare().then(() => {
     }
   }
 
-  function connectToScrcpySockets(
+  function connectToScrcpyVideo(
     deviceId: string,
     port: number,
     ws: WebSocket,
     sendLog: (msg: string) => void
   ) {
-    // 1. Connect video socket (first socket accepted by scrcpy-server)
-    const videoSocket = new net.Socket();
-    videoSocket.setNoDelay(true);
+    const socket = new net.Socket();
+    socket.setNoDelay(true);
 
     if (activeSession) {
-      activeSession.videoSocket = videoSocket;
+      activeSession.videoSocket = socket;
     }
 
     let buffer = Buffer.alloc(0);
@@ -257,26 +189,11 @@ app.prepare().then(() => {
     let currentIsKeyFrame = false;
     let currentIsConfig = false;
 
-    videoSocket.connect(port, '127.0.0.1', () => {
-      sendLog(`Video stream connected. Initializing native control channel...`);
-
-      // 2. Connect control socket (second socket accepted by scrcpy-server)
-      const controlSocket = new net.Socket();
-      controlSocket.setNoDelay(true);
-
-      controlSocket.connect(port, '127.0.0.1', () => {
-        sendLog(`Native touch & control channel active (<1 ms latency).`);
-        if (activeSession) {
-          activeSession.controlSocket = controlSocket;
-        }
-      });
-
-      controlSocket.on('error', (err) => {
-        console.warn(`[Control Socket Error]: ${err.message}`);
-      });
+    socket.connect(port, '127.0.0.1', () => {
+      sendLog(`Successfully connected to video stream.`);
     });
 
-    videoSocket.on('data', (chunk: Buffer) => {
+    socket.on('data', async (chunk: Buffer) => {
       buffer = Buffer.concat([buffer, chunk]);
 
       let processing = true;
@@ -293,25 +210,24 @@ app.prepare().then(() => {
           }
 
           case 'CODEC_METADATA': {
-            // 4 bytes codec ID, 4 bytes width, 4 bytes height
             if (buffer.length >= 12) {
               const codecId = buffer.subarray(0, 4).toString('utf8');
               const width = buffer.readUInt32BE(4);
               const height = buffer.readUInt32BE(8);
 
-              if (activeSession) {
-                activeSession.videoWidth = width;
-                activeSession.videoHeight = height;
-              }
+              // Query physical display resolution (e.g. 1080x2373)
+              const physical = await adb.getDeviceScreenSize(deviceId);
 
-              sendLog(`Stream Online: ${codecId.toUpperCase()} @ ${width}x${height}`);
+              sendLog(`Stream Online: ${codecId.toUpperCase()} @ ${width}x${height} (Physical: ${physical.width}x${physical.height})`);
 
               if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
                   type: 'meta',
                   codec: codecId,
                   width,
-                  height
+                  height,
+                  physicalWidth: physical.width,
+                  physicalHeight: physical.height,
                 }));
               }
 
@@ -365,11 +281,11 @@ app.prepare().then(() => {
       }
     });
 
-    videoSocket.on('error', (err) => {
+    socket.on('error', (err) => {
       sendLog(`[Video Socket Error]: ${err.message}`);
     });
 
-    videoSocket.on('close', () => {
+    socket.on('close', () => {
       sendLog(`Video stream closed.`);
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'stream-stopped' }));

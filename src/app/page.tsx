@@ -90,6 +90,8 @@ export default function Home() {
               codec: msg.codec,
               width: msg.width,
               height: msg.height,
+              physicalWidth: msg.physicalWidth,
+              physicalHeight: msg.physicalHeight,
             });
             setIsStreaming(true);
             break;
@@ -186,32 +188,29 @@ export default function Home() {
     );
   };
 
-  const handleTouch = (action: 'down' | 'move' | 'up', x: number, y: number) => {
+  const handleTap = (x: number, y: number) => {
     if (!wsRef.current || !selectedDeviceId) return;
     wsRef.current.send(
       JSON.stringify({
-        type: 'touch',
-        action,
+        type: 'tap',
         deviceId: selectedDeviceId,
         x,
         y,
-        width: streamMeta?.width || 1080,
-        height: streamMeta?.height || 2400,
       })
     );
   };
 
-  const handleScroll = (x: number, y: number, vScroll: number) => {
+  const handleSwipe = (x1: number, y1: number, x2: number, y2: number, duration: number) => {
     if (!wsRef.current || !selectedDeviceId) return;
     wsRef.current.send(
       JSON.stringify({
-        type: 'scroll',
+        type: 'swipe',
         deviceId: selectedDeviceId,
-        x,
-        y,
-        vScroll,
-        width: streamMeta?.width || 1080,
-        height: streamMeta?.height || 2400,
+        x1,
+        y1,
+        x2,
+        y2,
+        duration,
       })
     );
   };
@@ -254,8 +253,8 @@ export default function Home() {
           <p className="font-semibold text-slate-300 mb-1">Quick Note:</p>
           <ul className="list-disc list-inside space-y-1 text-slate-400">
             <li>Ensure USB Debugging is turned ON.</li>
-            <li>Direct clicks and drags emulate native touches.</li>
-            <li>Mouse wheel scrolls naturally.</li>
+            <li>Direct clicks emulate accurate physical taps.</li>
+            <li>Mouse drag flings and scrolls smoothly.</li>
             <li>Right click triggers the Back button.</li>
           </ul>
         </div>
@@ -267,8 +266,8 @@ export default function Home() {
           canvasRef={canvasRef}
           isStreaming={isStreaming}
           meta={streamMeta}
-          onTouch={handleTouch}
-          onScroll={handleScroll}
+          onTap={handleTap}
+          onSwipe={handleSwipe}
           onSendKey={sendKey}
           onSendText={sendText}
         />

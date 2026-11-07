@@ -9,6 +9,8 @@ export interface StreamMeta {
   codec: string;
   width: number;
   height: number;
+  physicalWidth?: number;
+  physicalHeight?: number;
 }
 
 export interface LogMessage {

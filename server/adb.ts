@@ -45,7 +45,7 @@ export class AdbManager {
     return this.adbPath;
   }
 
-  // Persistent interactive shell for zero-latency input injection
+  // Persistent interactive shell for zero-latency safe Android input injection
   private getOrCreateShell(deviceId: string): ChildProcess {
     if (this.activeShell && this.activeShellDeviceId === deviceId && !this.activeShell.killed) {
       return this.activeShell;
@@ -79,6 +79,24 @@ export class AdbManager {
     }
   }
 
+  // Query device physical screen dimensions (e.g. 1080x2373)
+  public async getDeviceScreenSize(deviceId: string): Promise<{ width: number; height: number }> {
+    return new Promise((resolve) => {
+      execFile(this.adbPath, ['-s', deviceId, 'shell', 'wm', 'size'], (err, stdout) => {
+        if (!err && stdout) {
+          const match = stdout.match(/(?:Override|Physical) size:\s*(\d+)x(\d+)/i);
+          if (match) {
+            return resolve({
+              width: parseInt(match[1], 10),
+              height: parseInt(match[2], 10),
+            });
+          }
+        }
+        resolve({ width: 1080, height: 2400 });
+      });
+    });
+  }
+
   public async getDevices(): Promise<DeviceInfo[]> {
     return new Promise((resolve) => {
       execFile(this.adbPath, ['devices', '-l'], (err, stdout) => {
@@ -89,7 +107,6 @@ export class AdbManager {
         const lines = stdout.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
         const devices: DeviceInfo[] = [];
 
-        // Skip header: "List of devices attached"
         for (let i = 1; i < lines.length; i++) {
           const line = lines[i];
           const parts = line.split(/\s+/);
@@ -165,7 +182,7 @@ export class AdbManager {
     });
   }
 
-  // Terminate any existing scrcpy-server instances on Android to prevent MediaTek encoder exhaustion
+  // Safely kill any existing scrcpy-server instances on Android
   public async killAllScrcpyServers(deviceId: string): Promise<void> {
     return new Promise((resolve) => {
       execFile(
@@ -177,10 +194,10 @@ export class AdbManager {
   }
 
   public spawnServer(deviceId: string): ChildProcess {
-    // Safe scrcpy v3.1 parameters:
-    // 1. 'stay_awake' is omitted to prevent ColorOS/OEM battery watchdog crash
-    // 2. 'max_size' is omitted to preserve native macroblock alignment on MediaTek/Qualcomm encoders
-    // 3. Bitrate is capped at 4 Mbps for stable thermal performance
+    // 100% Safe Parameters:
+    // - control=false: Prevents ColorOS SecurityException & InputManager DeadObjectException crash
+    // - stay_awake omitted: Prevents ColorOS/Oppo battery thermal watchdog panic
+    // - max_size omitted: Preserves native hardware macroblock alignment on MediaTek chipsets
     const args = [
       '-s', deviceId,
       'shell',
@@ -192,7 +209,7 @@ export class AdbManager {
       'tunnel_forward=true',
       'video=true',
       'audio=false',
-      'control=true',
+      'control=false',
       'send_dummy_byte=true',
       'send_codec_meta=true',
       'send_frame_meta=true',
@@ -201,7 +218,7 @@ export class AdbManager {
       'max_fps=60'
     ];
 
-    console.log(`[ADB] Starting scrcpy-server on ${deviceId}...`);
+    console.log(`[ADB] Starting safe scrcpy-server on ${deviceId}...`);
     const proc = spawn(this.adbPath, args);
 
     proc.stdout?.on('data', (data) => {
@@ -217,6 +234,7 @@ export class AdbManager {
     return proc;
   }
 
+  // Safe standard Android input injection using persistent interactive shell
   public injectKey(deviceId: string, keyCode: number): void {
     const shell = this.getOrCreateShell(deviceId);
     shell.stdin?.write(`input keyevent ${keyCode}\n`);
