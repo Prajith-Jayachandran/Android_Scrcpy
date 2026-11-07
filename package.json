@@ -1,22 +1,29 @@
 {
-  "name": "android-screen-copy",
-  "version": "1.0.0",
-  "description": "Standalone desktop mirroring and control tool for Android devices",
-  "main": "main.js",
+  "name": "android-web-mirror",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Ultra-low-latency, pure-web Android screen mirroring and control dashboard using Next.js, WebCodecs, and WebSocket",
   "scripts": {
-    "start": "electron .",
-    "package": "electron-packager . AndroidScreenCopy --platform=win32 --arch=x64 --out=dist --overwrite"
+    "dev": "tsx server/index.ts",
+    "build": "next build",
+    "start": "NODE_ENV=production tsx server/index.ts"
   },
-  "keywords": [
-    "android",
-    "screen-copy",
-    "mirroring"
-  ],
-  "author": "Antigravity",
-  "license": "ISC",
-  "dependencies": {},
+  "dependencies": {
+    "lucide-react": "^0.454.0",
+    "next": "14.2.16",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "ws": "^8.18.0"
+  },
   "devDependencies": {
-    "electron": "^31.0.0",
-    "electron-packager": "^17.1.2"
+    "@types/node": "^20.17.6",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/ws": "^8.5.13",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.14",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
   }
 }

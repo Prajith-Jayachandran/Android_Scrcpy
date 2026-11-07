@@ -1,60 +1,107 @@
-# Android Mirroring Tool (60 FPS Hybrid)
+# Android Web Mirror (Next.js • TypeScript • Tailwind • WebCodecs 60 FPS)
 
-A standalone desktop screen mirroring and control application for Android devices. This tool integrates Genymobile's native high-performance `scrcpy` engine directly into a custom, premium dark glassmorphic control dashboard.
-
----
-
-## 🏗️ Architecture: How It Works
-
-To achieve a fluid, zero-latency **60 FPS** stream without lag, this application uses a hybrid architecture:
-1. **Frontend (Electron)**: A modern HTML5/CSS3 glassmorphic dashboard handles device selection, status tracking, window controls, volume, and input emulation.
-2. **Streaming Engine (`scrcpy`)**: Genymobile's native C/SDL compiled `scrcpy` engine is spawned in borderless mode.
-3. **Win32 Docking**: A PowerShell script (`embed.ps1`) hooks into the Windows API, reparenting the native `scrcpy` video window (`SetParent`) and docking it precisely inside the Electron smartphone mockup frame.
-
-Since large binary executables (`.exe`), dynamic-link libraries (`.dll`), and browser packages are ignored by Git to keep the repository under 1 MB, you must download the native binaries separately to run or compile the project.
+An ultra-low-latency, pure-web Android screen mirroring and control dashboard. Built with **Next.js (App Router)**, **TypeScript**, **Tailwind CSS**, and **HTML5 WebCodecs (`VideoDecoder`)**, completely eliminating native window embedding hacks.
 
 ---
 
-## 🛠️ Repository Setup (For Cloned Code)
+## 🏗️ Architecture
 
-If you have cloned this repository, you must restore the native binaries, install dependencies, and build the launcher. We have provided a fully automated script to do this:
+```
+ ┌────────────────┐          ┌──────────────────────┐          ┌────────────────────────┐
+ │ Android Device │          │ Node.js Server       │          │ Next.js Frontend (Web) │
+ │                │          │                      │          │                        │
+ │  MediaCodec    │   TCP    │  WebSocket Bridge    │    WS    │  WebCodecs GPU         │
+ │  (H.264 NALUs) ├─────────►│  (server/index.ts)   ├─────────►│  (VideoDecoder)        │
+ │                │   ADB    │                      │          │           │            │
+ │  Touch Input   │◄─────────┤  Control Dispatcher  │◄─────────┤  HTML5 <canvas>        │
+ └────────────────┘ Forward  └──────────────────────┘  Binary  │  (Mouse & Key Events)  │
+                                                               └────────────────────────┘
+```
 
-### ⚡ Automated Installation
-1. Double-click the **`install.bat`** file in the project root directory (or run it from your terminal).
-2. The installation script will automatically:
-   - Download the official Genymobile `scrcpy` engine binaries.
-   - Install the project's Node.js packages.
-   - Compile and build the standalone application bundle.
-   - Launch the mirroring dashboard immediately.
-   - **Self-delete** the `install.bat` file to keep the workspace clean.
-
----
-
-## 🚀 Running the App
-
-After the setup is complete, you can launch the mirroring dashboard at any time by double-clicking the newly compiled **`scrcpy.exe`** file in the project root directory.
-
-> [!IMPORTANT]
-> Make sure to double-click and run **`scrcpy.exe`** (our custom dashboard launcher), **NOT `scrcpy-engine.exe`** (which is the headless native backend engine spawned by Electron and will not display the control dashboard).
+1. **In-Browser Hardware Video Decoding**: Decodes the phone's raw H.264 video stream directly inside the browser using the **WebCodecs API** (`VideoDecoder`). Frames are painted to a `<canvas>` element with GPU acceleration.
+2. **True Cross-Platform**: No Win32 `SetParent` hacks, no OS-specific window docking glitches, and zero Electron bloat. Works seamlessly on Linux, macOS, and Windows.
+3. **Low Latency (~25–35 ms)**: H.264 video packets stream directly over a binary WebSocket connection at up to 60 FPS.
+4. **Interactive Emulation**: Click and drag on the phone canvas to tap and swipe. Full sidebar navigation (Back, Home, Recents, Power, Volume) and text input injection via ADB.
 
 ---
 
-## 📱 How to Prepare Your Phone
+## 📋 System Requirements
 
-1. Enable **USB Debugging** on your Android device:
-   - Open **Settings** -> **About Phone** -> Tap **Build Number** 7 times.
-   - Go back to **Settings** -> **System** / **Developer Options** -> Turn **USB Debugging** ON.
-2. Connect the phone to your computer with a USB cable.
-   - Select **File Transfer** (MTP) if prompted.
-3. Approve the fingerprint popup on your phone screen:
-   - Check **"Always allow from this computer"** and tap **Allow**.
+* **Computer**: Linux, macOS, or Windows.
+* **Browser**: Any modern browser supporting WebCodecs (Google Chrome, Microsoft Edge, Mozilla Firefox 130+, Safari 16.4+, or Chromium-based browsers).
+* **Node.js**: v18.0.0 or higher.
+* **Android Device**: Android 5.0 (Lollipop) or higher with USB Debugging enabled.
 
 ---
 
-## 🎮 Interaction Controls
+## ⚡ Installation Procedure
+
+We have provided a unified installer script that handles system package management, automatic OS detection, binary downloads, and application compilation.
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/Prajith-Jayachandran/Android_Scrcpy.git
+cd Android_Scrcpy
+```
+
+### 2. Run the Unified Installer
+```bash
+chmod +x install.sh
+./install.sh
+```
+
+> **What `install.sh` does automatically:**
+> - Detects your OS (`Linux`, `macOS`, or `Windows`).
+> - Uses `sudo` with your native package manager (`pacman`, `apt-get`, `dnf`, `brew`) whenever available to install prerequisites (`android-tools`, `curl`, `unzip`, `nodejs`).
+> - Gracefully falls back to downloading Google's official Android platform-tools standalone binaries if `sudo` is unavailable.
+> - Verifies and fetches the headless `scrcpy-server.jar` Android agent.
+> - Installs all project dependencies (`npm install`) and builds the production Next.js bundle (`npm run build`).
+
+### 3. Launch the Application
+```bash
+./start.sh
+# or run:
+npm start
+```
+
+Open your browser and navigate to **[http://localhost:3000](http://localhost:3000)**.
+
+---
+
+## 📱 Preparing Your Phone
+
+1. **Enable Developer Options**:
+   - Go to **Settings** -> **About Phone** -> Tap **Build Number** 7 times until you see *"You are now a developer!"*.
+2. **Enable USB Debugging**:
+   - Go to **Settings** -> **System** / **Developer Options** -> Enable **USB Debugging**.
+3. **Connect & Authorize**:
+   - Connect your phone via USB cable (set to *File Transfer / MTP* mode if prompted).
+   - On the phone screen, check **"Always allow from this computer"** and tap **Allow**.
+
+---
+
+## 🎮 Interaction & Controls
 
 * **Left Click & Drag**: Tap, select, swipe, or scroll on the device screen.
-* **Right Click**: Triggers the **Back** button (or press `ESC` on your keyboard, or click the **Back** sidebar button).
-* **Middle Click**: Triggers the **Home** button (or click the **Home** sidebar button).
-* **Sidebar Controls**: Use the on-screen keys for **Recents**, **Power**, **Vol +**, and **Vol -**.
-* **Direct Typing**: Click inside the screen and type on your computer keyboard to input text on the phone. Alternatively, type into the **Text Input** field in the sidebar and click **Send**.
+* **Right Click**: Triggers the **Back** key.
+* **Middle Click**: Triggers the **Home** key.
+* **Keyboard Forwarding**: Click the screen canvas and type on your computer keyboard to type on Android.
+* **Navigation Buttons**: Dedicated on-screen buttons for **Back**, **Home**, and **Recents** (App Switcher).
+* **Hardware Buttons**: Buttons for **Power**, **Volume Up**, and **Volume Down**.
+* **Text Input Injection**: Dedicated input box to paste or type strings directly into Android fields.
+* **Diagnostics**: Live framerate counter, estimated latency, resolution telemetry, and system log console.
+
+---
+
+## 🛠️ Development & Manual Commands
+
+```bash
+# Start development server with hot-reloading
+npm run dev
+
+# Rebuild production bundle
+npm run build
+
+# Start production server
+npm start
+```

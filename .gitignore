@@ -1,20 +1,21 @@
 # Node.js dependencies
 node_modules/
 
-# Packaging build outputs
-dist/
-resources/
-locales/
+# Next.js build output
+.next/
+out/
+next-env.d.ts
 
-# Compiled binaries and libraries (scrcpy native assets)
+# Compiled binaries and libraries
+bin/adb*
+bin/fastboot*
 *.exe
 *.dll
 *.pak
 *.bin
 *.dat
-scrcpy-server
 
-# Temporary/Cache files
+# Temporary / Cache / Zip files
 *.zip
 *.png
 temp_unzip/
@@ -25,7 +26,8 @@ yarn-debug.log*
 yarn-error.log*
 *.log
 
-# Windows folder properties
+# OS metadata
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+.DS_Store
