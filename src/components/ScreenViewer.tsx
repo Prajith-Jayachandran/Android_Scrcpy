@@ -59,6 +59,10 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
 
     if (e.button !== 0) return; // Only track primary click
 
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch (err) {}
+
     const coords = mapCoordinates(e.clientX, e.clientY);
     dragStartRef.current = {
       x: coords.x,
@@ -70,19 +74,25 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isStreaming || !dragStartRef.current) return;
 
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch (err) {}
+
     const start = dragStartRef.current;
     const end = mapCoordinates(e.clientX, e.clientY);
-    const duration = Math.max(100, Math.min(1000, Date.now() - start.time));
 
     const dx = end.x - start.x;
     const dy = end.y - start.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
 
-    // If movement is very small, treat as a single tap
-    if (distance < 15) {
+    // Deadzone: under 50 phone pixels (approx 15px monitor movement) is a precise tap.
+    // This prevents slight mouse click tremors from accidentally triggering a swipe.
+    if (distance < 50) {
       onTap(start.x, start.y);
     } else {
-      onSwipe(start.x, start.y, end.x, end.y, duration);
+      // Swiping: use a quick 150ms duration so Android's WindowManager recognizes a
+      // fast flick/scroll gesture rather than a long-press on an app icon!
+      onSwipe(start.x, start.y, end.x, end.y, 150);
     }
 
     dragStartRef.current = null;
@@ -129,14 +139,22 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
         </div>
 
         {/* Screen Display Container */}
-        <div className="relative rounded-[2.4rem] bg-black overflow-hidden flex items-center justify-center w-[340px] sm:w-[380px] md:w-[400px] aspect-[9/19.5] shadow-inner border border-slate-800/80">
+        <div
+          className="relative rounded-[2.4rem] bg-black overflow-hidden flex items-center justify-center shadow-inner border border-slate-800/80 transition-all"
+          style={{
+            height: 'min(76vh, 740px)',
+            aspectRatio: meta ? `${meta.width} / ${meta.height}` : '9 / 19.5',
+            maxWidth: '100%',
+          }}
+        >
           {/* Active WebCodecs Video Canvas */}
           <canvas
             ref={canvasRef}
             onPointerDown={handlePointerDown}
             onPointerUp={handlePointerUp}
+            onPointerCancel={() => { dragStartRef.current = null; }}
             onContextMenu={(e) => e.preventDefault()}
-            className={`w-full h-full object-contain cursor-pointer touch-none transition-opacity duration-300 ${
+            className={`w-full h-full cursor-pointer touch-none transition-opacity duration-200 ${
               isStreaming ? 'opacity-100' : 'opacity-0 absolute pointer-events-none'
             }`}
           />

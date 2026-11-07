@@ -13,6 +13,8 @@ export interface DeviceInfo {
 export class AdbManager {
   private adbPath: string;
   private serverJarPath: string;
+  private activeShell: ChildProcess | null = null;
+  private activeShellDeviceId: string | null = null;
 
   constructor() {
     this.adbPath = this.resolveAdbPath();
@@ -41,6 +43,40 @@ export class AdbManager {
 
   public getAdbPath(): string {
     return this.adbPath;
+  }
+
+  // Persistent interactive shell for zero-latency input injection
+  private getOrCreateShell(deviceId: string): ChildProcess {
+    if (this.activeShell && this.activeShellDeviceId === deviceId && !this.activeShell.killed) {
+      return this.activeShell;
+    }
+
+    this.closeShell();
+
+    const shell = spawn(this.adbPath, ['-s', deviceId, 'shell']);
+    shell.stdin?.setDefaultEncoding('utf-8');
+    this.activeShell = shell;
+    this.activeShellDeviceId = deviceId;
+
+    shell.on('exit', () => {
+      if (this.activeShell === shell) {
+        this.activeShell = null;
+        this.activeShellDeviceId = null;
+      }
+    });
+
+    return shell;
+  }
+
+  public closeShell(): void {
+    if (this.activeShell) {
+      try {
+        this.activeShell.stdin?.end();
+        this.activeShell.kill();
+      } catch (e) {}
+      this.activeShell = null;
+      this.activeShellDeviceId = null;
+    }
   }
 
   public async getDevices(): Promise<DeviceInfo[]> {
@@ -130,7 +166,7 @@ export class AdbManager {
   }
 
   public spawnServer(deviceId: string): ChildProcess {
-    // Scrcpy v3.1 explicit parameters for headless raw video streaming
+    // Scrcpy v3.1 parameters optimized for ultra-low latency streaming
     const args = [
       '-s', deviceId,
       'shell',
@@ -148,7 +184,7 @@ export class AdbManager {
       'send_frame_meta=true',
       'send_device_meta=false',
       'max_size=1080',
-      'video_bit_rate=8000000',
+      'video_bit_rate=4000000',
       'max_fps=60',
       'stay_awake=true'
     ];
@@ -169,45 +205,24 @@ export class AdbManager {
     return proc;
   }
 
-  public injectKey(deviceId: string, keyCode: number): Promise<void> {
-    return new Promise((resolve) => {
-      execFile(this.adbPath, ['-s', deviceId, 'shell', 'input', 'keyevent', keyCode.toString()], () => {
-        resolve();
-      });
-    });
+  public injectKey(deviceId: string, keyCode: number): void {
+    const shell = this.getOrCreateShell(deviceId);
+    shell.stdin?.write(`input keyevent ${keyCode}\n`);
   }
 
-  public injectText(deviceId: string, text: string): Promise<void> {
-    return new Promise((resolve) => {
-      // Escape spaces for ADB input
-      const escaped = text.replace(/ /g, '%s').replace(/[^a-zA-Z0-9%s._-]/g, '');
-      execFile(this.adbPath, ['-s', deviceId, 'shell', 'input', 'text', escaped], () => {
-        resolve();
-      });
-    });
+  public injectText(deviceId: string, text: string): void {
+    const shell = this.getOrCreateShell(deviceId);
+    const escaped = text.replace(/ /g, '%s').replace(/[^a-zA-Z0-9%s._-]/g, '');
+    shell.stdin?.write(`input text ${escaped}\n`);
   }
 
-  public injectTap(deviceId: string, x: number, y: number): Promise<void> {
-    return new Promise((resolve) => {
-      execFile(this.adbPath, ['-s', deviceId, 'shell', 'input', 'tap', Math.round(x).toString(), Math.round(y).toString()], () => {
-        resolve();
-      });
-    });
+  public injectTap(deviceId: string, x: number, y: number): void {
+    const shell = this.getOrCreateShell(deviceId);
+    shell.stdin?.write(`input tap ${Math.round(x)} ${Math.round(y)}\n`);
   }
 
-  public injectSwipe(deviceId: string, x1: number, y1: number, x2: number, y2: number, durationMs = 200): Promise<void> {
-    return new Promise((resolve) => {
-      execFile(
-        this.adbPath,
-        [
-          '-s', deviceId,
-          'shell', 'input', 'swipe',
-          Math.round(x1).toString(), Math.round(y1).toString(),
-          Math.round(x2).toString(), Math.round(y2).toString(),
-          durationMs.toString()
-        ],
-        () => resolve()
-      );
-    });
+  public injectSwipe(deviceId: string, x1: number, y1: number, x2: number, y2: number, durationMs = 150): void {
+    const shell = this.getOrCreateShell(deviceId);
+    shell.stdin?.write(`input swipe ${Math.round(x1)} ${Math.round(y1)} ${Math.round(x2)} ${Math.round(y2)} ${Math.round(durationMs)}\n`);
   }
 }

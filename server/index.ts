@@ -28,7 +28,11 @@ app.prepare().then(() => {
     handle(req, res, parsedUrl);
   });
 
-  const wss = new WebSocketServer({ server, path: '/ws' });
+  const wss = new WebSocketServer({
+    server,
+    path: '/ws',
+    perMessageDeflate: false // Disable compression for real-time lowest latency
+  });
 
   wss.on('connection', (ws: WebSocket) => {
     console.log('[WS] Client connected');
@@ -105,28 +109,28 @@ app.prepare().then(() => {
 
           case 'key': {
             if (msg.deviceId && typeof msg.code === 'number') {
-              await adb.injectKey(msg.deviceId, msg.code);
+              adb.injectKey(msg.deviceId, msg.code);
             }
             break;
           }
 
           case 'text': {
             if (msg.deviceId && msg.text) {
-              await adb.injectText(msg.deviceId, msg.text);
+              adb.injectText(msg.deviceId, msg.text);
             }
             break;
           }
 
           case 'tap': {
             if (msg.deviceId && typeof msg.x === 'number' && typeof msg.y === 'number') {
-              await adb.injectTap(msg.deviceId, msg.x, msg.y);
+              adb.injectTap(msg.deviceId, msg.x, msg.y);
             }
             break;
           }
 
           case 'swipe': {
             if (msg.deviceId) {
-              await adb.injectSwipe(msg.deviceId, msg.x1, msg.y1, msg.x2, msg.y2, msg.duration || 150);
+              adb.injectSwipe(msg.deviceId, msg.x1, msg.y1, msg.x2, msg.y2, msg.duration || 150);
             }
             break;
           }
@@ -146,6 +150,7 @@ app.prepare().then(() => {
   });
 
   function stopCurrentSession() {
+    adb.closeShell();
     if (activeSession) {
       try {
         if (activeSession.tcpSocket) {
@@ -167,6 +172,7 @@ app.prepare().then(() => {
     sendLog: (msg: string) => void
   ) {
     const socket = new net.Socket();
+    socket.setNoDelay(true); // Disable Nagle's algorithm for immediate streaming
     if (activeSession) {
       activeSession.tcpSocket = socket;
     }

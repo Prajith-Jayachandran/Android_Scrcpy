@@ -164,6 +164,12 @@ export function useWebCodecs({ canvasRef, meta, onFpsUpdate }: UseWebCodecsOptio
 
       // 3. Handle Delta Frame (only decode if initial keyframe was processed)
       if (hasKeyframeRef.current) {
+        // Ultra-low latency enforcement:
+        // If hardware decoder queue backs up (> 2 frames), skip delta frames to stay pinned to real-time live
+        if (decoderRef.current.decodeQueueSize > 2) {
+          return;
+        }
+
         try {
           const chunk = new EncodedVideoChunk({
             type: 'delta',
