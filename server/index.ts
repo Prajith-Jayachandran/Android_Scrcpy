@@ -67,6 +67,7 @@ app.prepare().then(() => {
 
             // Stop existing session if active
             stopCurrentSession();
+            await adb.killAllScrcpyServers(deviceId);
 
             // 1. Push scrcpy-server.jar to device
             sendLog(`Pushing scrcpy-server to device...`);
@@ -124,7 +125,7 @@ app.prepare().then(() => {
               const buf = Buffer.alloc(32);
               buf.writeUInt8(2, 0); // TYPE_INJECT_TOUCH_EVENT = 2
               buf.writeUInt8(action, 1);
-              buf.writeBigInt64BE(-1n, 2); // pointerId = -1 (mouse/touch pointer)
+              buf.writeBigInt64BE(0n, 2); // pointerId = 0 (Finger 0, safe standard touch)
               buf.writeInt32BE(Math.round(msg.x), 10);
               buf.writeInt32BE(Math.round(msg.y), 14);
               buf.writeUInt16BE(w, 18);
@@ -217,6 +218,7 @@ app.prepare().then(() => {
   function stopCurrentSession() {
     adb.closeShell();
     if (activeSession) {
+      const devId = activeSession.deviceId;
       try {
         if (activeSession.videoSocket) {
           activeSession.videoSocket.destroy();
@@ -230,6 +232,7 @@ app.prepare().then(() => {
         adb.removeForward(activeSession.deviceId, activeSession.forwardPort);
       } catch (e) {}
       activeSession = null;
+      adb.killAllScrcpyServers(devId);
     }
   }
 

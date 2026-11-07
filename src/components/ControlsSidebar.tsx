@@ -68,13 +68,13 @@ export const ControlsSidebar: React.FC<ControlsSidebarProps> = ({
         </h3>
         <div className="grid grid-cols-3 gap-2">
           <button
-            onClick={() => onSendKey(26)}
+            onClick={() => onSendKey(224)}
             disabled={!isStreaming}
-            className="flex flex-col items-center gap-1.5 p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 hover:border-red-500/50 hover:bg-slate-800/60 text-slate-300 hover:text-red-400 transition disabled:opacity-40"
-            title="Power Key (Keycode 26)"
+            className="flex flex-col items-center gap-1.5 p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 hover:border-amber-500/50 hover:bg-slate-800/60 text-slate-300 hover:text-amber-400 transition disabled:opacity-40"
+            title="Wake Screen (Keycode 224)"
           >
-            <Power className="w-4 h-4" />
-            <span className="text-[11px] font-medium">Power</span>
+            <Sun className="w-4 h-4" />
+            <span className="text-[11px] font-medium">Wake</span>
           </button>
 
           <button

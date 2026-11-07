@@ -165,8 +165,22 @@ export class AdbManager {
     });
   }
 
+  // Terminate any existing scrcpy-server instances on Android to prevent MediaTek encoder exhaustion
+  public async killAllScrcpyServers(deviceId: string): Promise<void> {
+    return new Promise((resolve) => {
+      execFile(
+        this.adbPath,
+        ['-s', deviceId, 'shell', 'pkill -9 -f com.genymobile.scrcpy.Server || true'],
+        () => resolve()
+      );
+    });
+  }
+
   public spawnServer(deviceId: string): ChildProcess {
-    // Scrcpy v3.1 parameters with native control socket enabled for zero-latency input
+    // Safe scrcpy v3.1 parameters:
+    // 1. 'stay_awake' is omitted to prevent ColorOS/OEM battery watchdog crash
+    // 2. 'max_size' is omitted to preserve native macroblock alignment on MediaTek/Qualcomm encoders
+    // 3. Bitrate is capped at 4 Mbps for stable thermal performance
     const args = [
       '-s', deviceId,
       'shell',
@@ -183,10 +197,8 @@ export class AdbManager {
       'send_codec_meta=true',
       'send_frame_meta=true',
       'send_device_meta=false',
-      'max_size=1080',
       'video_bit_rate=4000000',
-      'max_fps=60',
-      'stay_awake=true'
+      'max_fps=60'
     ];
 
     console.log(`[ADB] Starting scrcpy-server on ${deviceId}...`);
