@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Smartphone, Usb, Layers, Eye, EyeOff } from 'lucide-react';
+import { Smartphone, Usb, Layers, Eye, EyeOff, LayoutGrid, SquareCheckBig } from 'lucide-react';
 import { DeviceInfo } from '@/lib/types';
 
 interface DeviceTabBarProps {
@@ -10,9 +10,11 @@ interface DeviceTabBarProps {
   streamingDeviceIds: Set<string>;
   syncAll: boolean;
   privacyMode: boolean;
+  viewMode: 'tabs' | 'split';
   onSelectTab: (deviceId: string) => void;
   onToggleSync: () => void;
   onTogglePrivacy: () => void;
+  onToggleViewMode: () => void;
 }
 
 export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
@@ -21,14 +23,16 @@ export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
   streamingDeviceIds,
   syncAll,
   privacyMode,
+  viewMode,
   onSelectTab,
   onToggleSync,
   onTogglePrivacy,
+  onToggleViewMode,
 }) => {
   // If no devices connected, show a clean placeholder
   if (devices.length === 0) {
     return (
-      <div className="flex items-center justify-between px-4 py-2 mb-3 rounded-2xl ultra-glass border border-white/10 w-full max-w-4xl mx-auto text-xs text-slate-400">
+      <div className="flex items-center justify-between px-4 py-2 mb-3 rounded-2xl ultra-glass border border-white/10 w-full max-w-5xl mx-auto text-xs text-slate-400">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
           <span>No USB devices connected. Plug in a phone with USB debugging enabled.</span>
@@ -38,7 +42,7 @@ export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
   }
 
   return (
-    <div className="flex items-center justify-between gap-3 px-4 py-2 mb-3 rounded-2xl ultra-glass border border-white/10 w-full max-w-4xl mx-auto shadow-2xl backdrop-blur-xl">
+    <div className="flex items-center justify-between gap-3 px-4 py-2 mb-3 rounded-2xl ultra-glass border border-white/10 w-full max-w-5xl mx-auto shadow-2xl backdrop-blur-xl">
       {/* Device Tabs (Oppo = Tab 1, Vivo = Tab 2, etc.) */}
       <div className="flex items-center gap-2 overflow-x-auto py-0.5 no-scrollbar">
         {devices.map((device, index) => {
@@ -83,8 +87,26 @@ export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
         })}
       </div>
 
-      {/* Global Toolbar: Mirror Sync & Quick Privacy Mode */}
+      {/* Global Toolbar: Multi-View Toggle, Mirror Sync & Privacy Mode */}
       <div className="flex items-center gap-2 flex-shrink-0">
+        {/* Parallel Multi-View / Side-by-Side Toggle */}
+        {devices.length > 1 && (
+          <button
+            onClick={onToggleViewMode}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+              viewMode === 'split'
+                ? 'bg-cyan-500/25 text-cyan-200 border border-cyan-400/50 shadow-[0_0_15px_rgba(6,182,212,0.3)]'
+                : 'bg-white/5 text-slate-400 hover:text-slate-200 border border-white/10 hover:bg-white/10'
+            }`}
+            title="Toggle between Single Tab View and Parallel Side-by-Side View"
+          >
+            <LayoutGrid className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">
+              {viewMode === 'split' ? 'Side-by-Side (2 Active)' : 'Split View'}
+            </span>
+          </button>
+        )}
+
         {/* Mirror Sync (Broadcast inputs to all open tabs) */}
         <button
           onClick={onToggleSync}

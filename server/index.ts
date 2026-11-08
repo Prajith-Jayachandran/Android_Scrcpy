@@ -451,21 +451,29 @@ app.prepare().then(() => {
               const payload = buffer.subarray(0, currentPacketSize);
               buffer = buffer.subarray(currentPacketSize);
 
+              const devIdBuf = Buffer.from(deviceId, 'ascii');
+              const idLen = devIdBuf.length;
               const flags = (currentIsKeyFrame ? 1 : 0) | (currentIsConfig ? 2 : 0);
-              const msg = Buffer.alloc(10 + payload.length);
-              msg[0] = 0x01; // Video Frame identifier
-              msg[1] = flags;
-              msg.writeBigUInt64BE(currentPts, 2);
-              payload.copy(msg, 10);
 
-              // Forward video frame to clients viewing this device
+              // Embed deviceId in binary frame for parallel multi-device streaming
+              // [0]: 0x01 (Video packet)
+              // [1]: idLen (Device ID string byte length)
+              // [2 .. 2+idLen-1]: Device ID ASCII
+              // [2+idLen]: flags (bit 0 = keyframe, bit 1 = config)
+              // [3+idLen .. 10+idLen]: PTS (8 bytes BigUInt64)
+              // [11+idLen ..]: NALU payload
+              const msg = Buffer.alloc(11 + idLen + payload.length);
+              msg[0] = 0x01;
+              msg[1] = idLen;
+              devIdBuf.copy(msg, 2);
+              msg[2 + idLen] = flags;
+              msg.writeBigUInt64BE(currentPts, 3 + idLen);
+              payload.copy(msg, 11 + idLen);
+
+              // Broadcast video frame to all connected clients for parallel decoding
               for (const client of wss.clients) {
-                const extClient = client as ExtendedWebSocket;
-                if (
-                  extClient.readyState === WebSocket.OPEN &&
-                  (!extClient.activeDeviceId || extClient.activeDeviceId === deviceId)
-                ) {
-                  extClient.send(msg);
+                if (client.readyState === WebSocket.OPEN) {
+                  client.send(msg);
                 }
               }
 

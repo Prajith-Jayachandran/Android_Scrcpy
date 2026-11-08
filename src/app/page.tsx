@@ -10,23 +10,23 @@ import { CursorTrail } from '@/components/CursorTrail';
 import { DeviceTabBar } from '@/components/DeviceTabBar';
 import { NewUsbDeviceModal } from '@/components/NewUsbDeviceModal';
 import { MacroEditor } from '@/components/MacroEditor';
-import { useWebCodecs } from '@/hooks/useWebCodecs';
+import { useMultiWebCodecs } from '@/hooks/useMultiWebCodecs';
 import { useMacroRecorder } from '@/hooks/useMacroRecorder';
 import { DeviceInfo, StreamMeta, LogMessage } from '@/lib/types';
-import { Cast, ShieldCheck } from 'lucide-react';
+import { Cast } from 'lucide-react';
 
 export default function Home() {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [streamingDeviceIds, setStreamingDeviceIds] = useState<Set<string>>(new Set());
+  const [deviceMetas, setDeviceMetas] = useState<Record<string, StreamMeta>>({});
   const [isScanning, setIsScanning] = useState<boolean>(false);
-  const [isStreaming, setIsStreaming] = useState<boolean>(false);
-  const [streamMeta, setStreamMeta] = useState<StreamMeta | null>(null);
-  const [fps, setFps] = useState<number>(0);
   const [logs, setLogs] = useState<LogMessage[]>([]);
+
+  // Feature #4: Multi-Device Parallel View Modes ('tabs' or 'split')
+  const [viewMode, setViewMode] = useState<'tabs' | 'split'>('tabs');
 
   // Feature #4: Multi-Device Sync Input Toggle
   const [syncAll, setSyncAll] = useState<boolean>(false);
@@ -54,66 +54,68 @@ export default function Home() {
     ]);
   }, []);
 
-  const { decodeChunk, resetDecoder } = useWebCodecs({
-    canvasRef,
-    meta: streamMeta,
-    onFpsUpdate: setFps,
-  });
+  // Multi-Device WebCodecs Decoder Pool (Decodes each device in parallel)
+  const { registerCanvas, decodeChunk, resetDecoder, fpsMap } = useMultiWebCodecs();
 
-  // Base raw command dispatches (wrapped for Macro Recording)
+  // Current active device streaming state and fps
+  const isStreaming = streamingDeviceIds.has(selectedDeviceId);
+  const activeMeta = deviceMetas[selectedDeviceId] || null;
+  const currentFps = fpsMap[selectedDeviceId] || 0;
+
+  // Raw command dispatches targeted to specific or all devices
   const rawSendKey = useCallback(
-    (code: number) => {
-      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !selectedDeviceId) return;
+    (targetDeviceId: string, code: number) => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !targetDeviceId) return;
       wsRef.current.send(
         JSON.stringify({
           type: 'key',
-          deviceId: selectedDeviceId,
+          deviceId: targetDeviceId,
           code,
           syncAll,
         })
       );
     },
-    [selectedDeviceId, syncAll]
+    [syncAll]
   );
 
   const rawSendText = useCallback(
-    (text: string) => {
-      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !selectedDeviceId) return;
+    (targetDeviceId: string, text: string) => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !targetDeviceId) return;
       wsRef.current.send(
         JSON.stringify({
           type: 'text',
-          deviceId: selectedDeviceId,
+          deviceId: targetDeviceId,
           text,
           syncAll,
         })
       );
     },
-    [selectedDeviceId, syncAll]
+    [syncAll]
   );
 
   const rawTap = useCallback(
-    (x: number, y: number) => {
-      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !selectedDeviceId) return;
+    (targetDeviceId: string, x: number, y: number) => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !targetDeviceId) return;
       wsRef.current.send(
         JSON.stringify({
           type: 'tap',
-          deviceId: selectedDeviceId,
+          deviceId: targetDeviceId,
           x,
           y,
           syncAll,
         })
       );
     },
-    [selectedDeviceId, syncAll]
+    [syncAll]
   );
 
   const rawSwipe = useCallback(
-    (x1: number, y1: number, x2: number, y2: number, duration: number) => {
-      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !selectedDeviceId) return;
+    (targetDeviceId: string, x1: number, y1: number, x2: number, y2: number, duration: number) => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !targetDeviceId) return;
       wsRef.current.send(
         JSON.stringify({
           type: 'swipe',
-          deviceId: selectedDeviceId,
+          deviceId: targetDeviceId,
           x1,
           y1,
           x2,
@@ -123,48 +125,52 @@ export default function Home() {
         })
       );
     },
-    [selectedDeviceId, syncAll]
+    [syncAll]
   );
 
   // Feature #8: Macro Recorder Hook
   const macroRecorder = useMacroRecorder({
-    onDispatchTap: rawTap,
-    onDispatchSwipe: rawSwipe,
-    onDispatchKey: rawSendKey,
-    onDispatchText: rawSendText,
+    onDispatchTap: (x, y) => rawTap(selectedDeviceId, x, y),
+    onDispatchSwipe: (x1, y1, x2, y2, d) => rawSwipe(selectedDeviceId, x1, y1, x2, y2, d),
+    onDispatchKey: (code) => rawSendKey(selectedDeviceId, code),
+    onDispatchText: (text) => rawSendText(selectedDeviceId, text),
   });
 
-  // Intercepting dispatchers that feed the macro recorder
+  // Action dispatches for current active device
   const sendKey = useCallback(
     (code: number) => {
       macroRecorder.recordAction({ type: 'key', keyCode: code });
-      rawSendKey(code);
+      rawSendKey(selectedDeviceId, code);
     },
-    [macroRecorder, rawSendKey]
+    [macroRecorder, rawSendKey, selectedDeviceId]
   );
 
   const sendText = useCallback(
     (text: string) => {
       macroRecorder.recordAction({ type: 'text', text });
-      rawSendText(text);
+      rawSendText(selectedDeviceId, text);
     },
-    [macroRecorder, rawSendText]
+    [macroRecorder, rawSendText, selectedDeviceId]
   );
 
-  const handleTap = useCallback(
-    (x: number, y: number) => {
-      macroRecorder.recordAction({ type: 'tap', x, y });
-      rawTap(x, y);
+  const handleTapForDevice = useCallback(
+    (deviceId: string, x: number, y: number) => {
+      if (deviceId === selectedDeviceId) {
+        macroRecorder.recordAction({ type: 'tap', x, y });
+      }
+      rawTap(deviceId, x, y);
     },
-    [macroRecorder, rawTap]
+    [macroRecorder, rawTap, selectedDeviceId]
   );
 
-  const handleSwipe = useCallback(
-    (x1: number, y1: number, x2: number, y2: number, duration: number) => {
-      macroRecorder.recordAction({ type: 'swipe', x1, y1, x2, y2, duration });
-      rawSwipe(x1, y1, x2, y2, duration);
+  const handleSwipeForDevice = useCallback(
+    (deviceId: string, x1: number, y1: number, x2: number, y2: number, duration: number) => {
+      if (deviceId === selectedDeviceId) {
+        macroRecorder.recordAction({ type: 'swipe', x1, y1, x2, y2, duration });
+      }
+      rawSwipe(deviceId, x1, y1, x2, y2, duration);
     },
-    [macroRecorder, rawSwipe]
+    [macroRecorder, rawSwipe, selectedDeviceId]
   );
 
   // Connect to WebSocket Server
@@ -183,18 +189,36 @@ export default function Home() {
     };
 
     ws.onmessage = (event) => {
-      // Binary Video Packet from Server
+      // Parallel Binary Video Packet from Server
       if (event.data instanceof ArrayBuffer) {
         const view = new Uint8Array(event.data);
         if (view[0] === 0x01) {
-          const flags = view[1];
+          const idLen = view[1];
+          let targetDevId = selectedDeviceId;
+          let flags = 0;
+          let pts = 0;
+          let naluPayload: Uint8Array;
+
+          if (idLen > 3 && view.length > 11 + idLen) {
+            // Multi-device frame tagged with exact target deviceId
+            targetDevId = new TextDecoder().decode(view.subarray(2, 2 + idLen));
+            flags = view[2 + idLen];
+            const dataView = new DataView(event.data);
+            pts = Number(dataView.getBigUint64(3 + idLen, false));
+            naluPayload = view.subarray(11 + idLen);
+          } else {
+            // Legacy untagged frame fallback
+            flags = view[1];
+            const dataView = new DataView(event.data);
+            pts = Number(dataView.getBigUint64(2, false));
+            naluPayload = view.subarray(10);
+          }
+
           const isKeyFrame = (flags & 0x01) !== 0;
           const isConfig = (flags & 0x02) !== 0;
-          const dataView = new DataView(event.data);
-          const pts = Number(dataView.getBigUint64(2, false));
-          const naluPayload = view.subarray(10);
 
-          decodeChunk(naluPayload, isKeyFrame, isConfig, pts);
+          // Decodes directly to the corresponding device's independent decoder & canvas in parallel
+          decodeChunk(targetDevId, naluPayload, isKeyFrame, isConfig, pts);
         }
         return;
       }
@@ -203,16 +227,14 @@ export default function Home() {
       try {
         const msg = JSON.parse(event.data);
         switch (msg.type) {
-          case 'devices':
+          case 'devices': {
             setIsScanning(false);
             const newDevices: DeviceInfo[] = msg.devices || [];
             setDevices(newDevices);
 
-            // Handle Manual Refresh Pop-up trigger
             if (isManualRefreshRef.current) {
               isManualRefreshRef.current = false;
-              // Check for any authorized USB device
-              // Prefer a device that is not currently selected or not streaming yet
+              // Check for any unlinked USB device
               const unlinkedDevice = newDevices.find(
                 (d) => d.status === 'device' && (!selectedDeviceId || d.id !== selectedDeviceId)
               );
@@ -220,73 +242,75 @@ export default function Home() {
               if (unlinkedDevice) {
                 setDetectedUsbDevice(unlinkedDevice);
                 setNewUsbModalOpen(true);
-                addLog(`Detected USB device: ${unlinkedDevice.model || unlinkedDevice.id}. Prompting to create link tab...`);
+                addLog(`Detected USB device: ${unlinkedDevice.model || unlinkedDevice.id}. Prompting to link...`);
               } else if (newDevices.length > 0 && !selectedDeviceId) {
                 setDetectedUsbDevice(newDevices[0]);
                 setNewUsbModalOpen(true);
               } else if (newDevices.length > 0) {
-                // If all are already selected, allow re-linking current device or inform user
                 setDetectedUsbDevice(newDevices[0]);
                 setNewUsbModalOpen(true);
               } else {
                 addLog('No USB devices detected. Connect a phone via USB with USB debugging enabled.');
               }
             } else {
-              // Automatic initial selection
+              // Automatic initial selection on load if none selected yet
               if (newDevices.length > 0 && !selectedDeviceId) {
                 const readyDev = newDevices.find((d: DeviceInfo) => d.status === 'device');
                 setSelectedDeviceId(readyDev ? readyDev.id : newDevices[0].id);
               }
             }
             break;
+          }
 
-          case 'meta':
-            if (!msg.deviceId || msg.deviceId === selectedDeviceId) {
-              setStreamMeta({
+          case 'meta': {
+            const devId = msg.deviceId || selectedDeviceId;
+            setDeviceMetas((prev) => ({
+              ...prev,
+              [devId]: {
                 codec: msg.codec,
                 width: msg.width,
                 height: msg.height,
                 physicalWidth: msg.physicalWidth,
                 physicalHeight: msg.physicalHeight,
-                deviceId: msg.deviceId,
-              });
-              setIsStreaming(true);
-              setStreamingDeviceIds((prev) => new Set(prev).add(msg.deviceId || selectedDeviceId));
-            }
+                deviceId: devId,
+              },
+            }));
+            setStreamingDeviceIds((prev) => new Set(prev).add(devId));
             break;
+          }
 
-          case 'stream-stopped':
-            if (!msg.deviceId || msg.deviceId === selectedDeviceId) {
-              setIsStreaming(false);
-              setStreamMeta(null);
-              setFps(0);
-              resetDecoder();
-            }
-            if (msg.deviceId) {
+          case 'stream-stopped': {
+            const stoppedDevId = msg.deviceId || selectedDeviceId;
+            if (stoppedDevId) {
               setStreamingDeviceIds((prev) => {
                 const next = new Set(prev);
-                next.delete(msg.deviceId);
+                next.delete(stoppedDevId);
                 return next;
               });
+              resetDecoder(stoppedDevId);
             }
             break;
+          }
 
-          case 'privacy-mode-status':
+          case 'privacy-mode-status': {
             if (msg.deviceId === selectedDeviceId) {
               setPrivacyMode(msg.enabled);
             }
             break;
+          }
 
-          case 'game-mode-status':
+          case 'game-mode-status': {
             if (msg.deviceId === selectedDeviceId) {
               setIsGameActive(msg.isGame);
               setActivePackage(msg.package);
             }
             break;
+          }
 
-          case 'log':
+          case 'log': {
             addLog(msg.message);
             break;
+          }
         }
       } catch (e) {
         console.warn('Non-JSON message received:', event.data);
@@ -299,7 +323,7 @@ export default function Home() {
 
     ws.onclose = () => {
       addLog('[System] Connection to server lost. Reconnecting in 3s...');
-      setIsStreaming(false);
+      setStreamingDeviceIds(new Set());
     };
 
     return () => {
@@ -307,20 +331,18 @@ export default function Home() {
     };
   }, [addLog, decodeChunk, resetDecoder, selectedDeviceId]);
 
-  // Periodic device scanning when not streaming
+  // Periodic device scanning when not all devices streaming
   useEffect(() => {
-    if (isStreaming) return;
-
     const timer = setInterval(() => {
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({ type: 'get-devices' }));
       }
-    }, 3000);
+    }, 4000);
 
     return () => clearInterval(timer);
-  }, [isStreaming]);
+  }, []);
 
-  // Feature #3: Periodic foreground game detection (every 3.5s while streaming)
+  // Periodic foreground game detection for active device
   useEffect(() => {
     if (!isStreaming || !selectedDeviceId) return;
 
@@ -338,7 +360,7 @@ export default function Home() {
     return () => clearInterval(gameCheckTimer);
   }, [isStreaming, selectedDeviceId]);
 
-  // Manual Refresh Button Action -> Requests devices and sets flag for pop-up
+  // Manual Refresh Button Action -> Scans USB and triggers prompt
   const handleManualRefresh = useCallback(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       setIsScanning(true);
@@ -348,12 +370,11 @@ export default function Home() {
     }
   }, [addLog]);
 
+  // Start stream explicitly (does NOT auto-run on tab switch)
   const startStream = useCallback(
     (targetId?: string) => {
       const devId = targetId || selectedDeviceId;
       if (!devId || !wsRef.current) return;
-      resetDecoder();
-      setIsStreaming(true);
       wsRef.current.send(
         JSON.stringify({
           type: 'start-stream',
@@ -361,92 +382,49 @@ export default function Home() {
         })
       );
     },
-    [selectedDeviceId, resetDecoder]
+    [selectedDeviceId]
   );
 
-  const stopStream = useCallback(() => {
-    if (!wsRef.current) return;
-    wsRef.current.send(JSON.stringify({ type: 'stop-stream', deviceId: selectedDeviceId }));
-    setIsStreaming(false);
-    setFps(0);
-  }, [selectedDeviceId]);
-
-  // Handle Dropdown Device Selection: Spawns tab and auto-runs mirroring
-  const handleSelectDeviceFromDropdown = useCallback(
-    (deviceId: string) => {
-      if (!deviceId) return;
-      setSelectedDeviceId(deviceId);
-      resetDecoder();
-
-      const targetDev = devices.find((d) => d.id === deviceId);
-      const brand = targetDev?.model || targetDev?.product || deviceId;
-
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(
-          JSON.stringify({
-            type: 'select-device',
-            deviceId,
-          })
-        );
-
-        // Automatically spawn/activate tab and start mirror
-        setIsStreaming(true);
-        wsRef.current.send(
-          JSON.stringify({
-            type: 'start-stream',
-            deviceId,
-          })
-        );
-        addLog(`✔ Spawning Tab for ${brand} and initializing mirror...`);
-      }
+  // Stop stream explicitly for current device
+  const stopStream = useCallback(
+    (targetId?: string) => {
+      const devId = targetId || selectedDeviceId;
+      if (!wsRef.current || !devId) return;
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'stop-stream',
+          deviceId: devId,
+        })
+      );
     },
-    [devices, resetDecoder, addLog]
+    [selectedDeviceId]
   );
 
-  // Handle Tab Click in top tab bar
+  // Dropdown Selection: Switches active tab WITHOUT auto-starting mirroring
+  const handleSelectDeviceFromDropdown = useCallback((deviceId: string) => {
+    if (!deviceId) return;
+    setSelectedDeviceId(deviceId);
+  }, []);
+
+  // Tab Selection: Switches active tab WITHOUT auto-starting mirroring
   const handleSelectTab = useCallback(
     (newDeviceId: string) => {
       if (newDeviceId === selectedDeviceId) return;
       setSelectedDeviceId(newDeviceId);
-      resetDecoder();
-
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(
-          JSON.stringify({
-            type: 'select-device',
-            deviceId: newDeviceId,
-          })
-        );
-
-        if (!streamingDeviceIds.has(newDeviceId)) {
-          startStream(newDeviceId);
-        }
-      }
     },
-    [selectedDeviceId, streamingDeviceIds, resetDecoder, startStream]
+    [selectedDeviceId]
   );
 
-  // Confirm Pop-up: Spawn New USB Link Tab & Automatically Start Mirroring
+  // Confirm Pop-up: Spawn New USB Link Tab & Start Mirroring
   const handleConfirmNewUsbLink = useCallback(() => {
     if (!detectedUsbDevice) return;
     const targetId = detectedUsbDevice.id;
     const brand = detectedUsbDevice.model || detectedUsbDevice.product || targetId;
     setNewUsbModalOpen(false);
 
-    // Switch to this device tab
     setSelectedDeviceId(targetId);
-    resetDecoder();
 
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: 'select-device',
-          deviceId: targetId,
-        })
-      );
-
-      // Automatically spawn tab and start mirroring
-      setIsStreaming(true);
       wsRef.current.send(
         JSON.stringify({
           type: 'start-stream',
@@ -457,9 +435,9 @@ export default function Home() {
 
     addLog(`✔ Created new USB link tab for ${brand} and started mirroring!`);
     setDetectedUsbDevice(null);
-  }, [detectedUsbDevice, resetDecoder, addLog]);
+  }, [detectedUsbDevice, addLog]);
 
-  // Feature #10: Toggle Quick-Draw Privacy Mode
+  // Toggle Quick-Draw Privacy Mode
   const togglePrivacyMode = useCallback(() => {
     if (!wsRef.current || !selectedDeviceId) return;
     const nextState = !privacyMode;
@@ -473,7 +451,7 @@ export default function Home() {
     );
   }, [privacyMode, selectedDeviceId]);
 
-  // Feature #6: Clipboard paste handler
+  // Clipboard paste handler
   const handleClipboardPaste = useCallback(
     (text: string) => {
       if (!wsRef.current || !selectedDeviceId) return;
@@ -488,7 +466,7 @@ export default function Home() {
     [selectedDeviceId]
   );
 
-  // Compute tab number for modal
+  // Tab number calculation for modal
   const targetTabNumber = detectedUsbDevice
     ? devices.findIndex((d) => d.id === detectedUsbDevice.id) + 1 || devices.length + 1
     : 1;
@@ -546,7 +524,7 @@ export default function Home() {
               </span>
             </h1>
             <p className="text-[11px] text-slate-400 font-medium">
-              Ultra Glass • Pure WebCodecs
+              Ultra Glass • Parallel WebCodecs
             </p>
           </div>
         </div>
@@ -561,11 +539,11 @@ export default function Home() {
           isScanning={isScanning}
           isStreaming={isStreaming}
           onStartStream={() => startStream()}
-          onStopStream={stopStream}
+          onStopStream={() => stopStream()}
         />
 
         {/* Live Diagnostics Glass Card */}
-        <DiagnosticsPanel fps={fps} meta={streamMeta} isStreaming={isStreaming} />
+        <DiagnosticsPanel fps={currentFps} meta={activeMeta} isStreaming={isStreaming} />
 
         {/* Feature #8: Macro Timeline Automator */}
         <MacroEditor
@@ -587,49 +565,118 @@ export default function Home() {
         />
       </aside>
 
-      {/* Main Viewport: Multi-Device Numbered Tabs & 3D Perspective Stage */}
+      {/* Main Viewport: Multi-Device Numbered Tabs & Parallel Stages */}
       <section className="flex-1 flex flex-col items-center justify-between p-4 relative overflow-hidden z-10">
-        {/* Feature #4: Multi-Device Numbered Tabs (Oppo = 1, Vivo = 2, etc.) */}
+        {/* Feature #4: Multi-Device Numbered Tabs with Side-by-Side Split View toggle */}
         <DeviceTabBar
           devices={devices}
           activeDeviceId={selectedDeviceId}
           streamingDeviceIds={streamingDeviceIds}
           syncAll={syncAll}
           privacyMode={privacyMode}
+          viewMode={viewMode}
           onSelectTab={handleSelectTab}
           onToggleSync={() => setSyncAll(!syncAll)}
           onTogglePrivacy={togglePrivacyMode}
+          onToggleViewMode={() => setViewMode((prev) => (prev === 'tabs' ? 'split' : 'tabs'))}
         />
 
-        {/* Active Smartphone Display Stage with Drag & Drop Sideloading + Gamepad HUD */}
-        <div className="flex-1 flex items-center justify-center w-full">
-          <ScreenViewer
-            canvasRef={canvasRef}
-            isStreaming={isStreaming}
-            meta={streamMeta}
-            activeDeviceId={selectedDeviceId}
-            isGameActive={isGameActive}
-            activePackage={activePackage}
-            onTap={handleTap}
-            onSwipe={handleSwipe}
-            onSendKey={sendKey}
-            onSendText={sendText}
-            onCloseGamepad={() => setIsGameActive(false)}
-            onNotifyLog={addLog}
-          />
+        {/* Parallel Device Display Stages */}
+        <div className="flex-1 flex items-center justify-center w-full overflow-y-auto no-scrollbar">
+          {devices.length === 0 ? (
+            <div className="text-center text-slate-500 text-xs">
+              Connect a device via USB to start mirroring.
+            </div>
+          ) : viewMode === 'split' ? (
+            // Side-by-Side (2 Active at a time in parallel)
+            <div className="flex items-center justify-center gap-6 flex-wrap w-full animate-in fade-in duration-200">
+              {devices.map((device, idx) => {
+                const isSelected = device.id === selectedDeviceId;
+                return (
+                  <div
+                    key={device.id}
+                    onClick={() => setSelectedDeviceId(device.id)}
+                    className={`transition-all duration-200 cursor-pointer ${
+                      isSelected
+                        ? 'ring-2 ring-indigo-500/60 rounded-[3.8rem] shadow-[0_0_40px_rgba(99,102,241,0.3)]'
+                        : 'opacity-85 hover:opacity-100'
+                    }`}
+                  >
+                    <ScreenViewer
+                      onRegisterCanvas={registerCanvas}
+                      activeDeviceId={device.id}
+                      deviceName={`Tab #${idx + 1}: ${device.model || device.product || device.id}`}
+                      isCompact={true}
+                      isStreaming={streamingDeviceIds.has(device.id)}
+                      meta={deviceMetas[device.id] || null}
+                      isGameActive={isSelected && isGameActive}
+                      activePackage={activePackage}
+                      onTap={(x, y) => handleTapForDevice(device.id, x, y)}
+                      onSwipe={(x1, y1, x2, y2, d) => handleSwipeForDevice(device.id, x1, y1, x2, y2, d)}
+                      onSendKey={(code) => rawSendKey(device.id, code)}
+                      onSendText={(text) => rawSendText(device.id, text)}
+                      onCloseGamepad={() => setIsGameActive(false)}
+                      onNotifyLog={addLog}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            // Single Tab View (Maintains all canvases mounted in parallel, instant 0ms tab switching)
+            <div className="relative w-full flex items-center justify-center">
+              {devices.map((device, idx) => {
+                const isSelected = device.id === selectedDeviceId;
+                return (
+                  <div
+                    key={device.id}
+                    className={`w-full flex items-center justify-center transition-opacity duration-150 ${
+                      isSelected ? 'block opacity-100' : 'hidden opacity-0 absolute pointer-events-none'
+                    }`}
+                  >
+                    <ScreenViewer
+                      onRegisterCanvas={registerCanvas}
+                      activeDeviceId={device.id}
+                      deviceName={`Tab #${idx + 1}: ${device.model || device.product || device.id}`}
+                      isCompact={false}
+                      isStreaming={streamingDeviceIds.has(device.id)}
+                      meta={deviceMetas[device.id] || null}
+                      isGameActive={isSelected && isGameActive}
+                      activePackage={activePackage}
+                      onTap={(x, y) => handleTapForDevice(device.id, x, y)}
+                      onSwipe={(x1, y1, x2, y2, d) => handleSwipeForDevice(device.id, x1, y1, x2, y2, d)}
+                      onSendKey={sendKey}
+                      onSendText={sendText}
+                      onCloseGamepad={() => setIsGameActive(false)}
+                      onNotifyLog={addLog}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Bottom Status Pill */}
         <div className="mt-2 flex items-center gap-3 text-[11px] text-slate-400 ultra-glass px-4 py-1.5 rounded-full border border-white/5">
           <span className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
-            <span>Drag &amp; Drop .APK to install &amp; auto-launch</span>
+            <span>Parallel Hardware Decoders Active</span>
           </span>
           <span className="text-slate-600">•</span>
           <span className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
-            <span>Drop Photos/Videos to push to /sdcard/Download/</span>
+            <span>Instantaneous 0ms Tab Switching</span>
           </span>
+          {devices.length > 1 && (
+            <>
+              <span className="text-slate-600">•</span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                <span>Side-by-Side Dual Mirror Available</span>
+              </span>
+            </>
+          )}
         </div>
       </section>
 

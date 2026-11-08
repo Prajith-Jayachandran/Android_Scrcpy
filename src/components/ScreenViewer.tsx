@@ -6,10 +6,13 @@ import { StreamMeta } from '../lib/types';
 import { GamepadOverlay } from './GamepadOverlay';
 
 interface ScreenViewerProps {
-  canvasRef: React.RefObject<HTMLCanvasElement>;
+  canvasRef?: React.RefObject<HTMLCanvasElement>;
+  onRegisterCanvas?: (deviceId: string, canvas: HTMLCanvasElement | null) => void;
   isStreaming: boolean;
   meta: StreamMeta | null;
   activeDeviceId: string;
+  deviceName?: string;
+  isCompact?: boolean;
   isGameActive?: boolean;
   activePackage?: string;
   onTap: (x: number, y: number) => void;
@@ -21,10 +24,13 @@ interface ScreenViewerProps {
 }
 
 export const ScreenViewer: React.FC<ScreenViewerProps> = ({
-  canvasRef,
+  canvasRef: externalCanvasRef,
+  onRegisterCanvas,
   isStreaming,
   meta,
   activeDeviceId,
+  deviceName,
+  isCompact = false,
   isGameActive = false,
   activePackage,
   onTap,
@@ -35,9 +41,24 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
   onNotifyLog,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const localCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const canvasRef = externalCanvasRef || localCanvasRef;
+
   const dragStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
   const lastCoordsRef = useRef<{ x: number; y: number } | null>(null);
   const [isFocused, setIsFocused] = useState(false);
+
+  // Register canvas with multi-device decoder pool
+  useEffect(() => {
+    if (onRegisterCanvas && canvasRef.current) {
+      onRegisterCanvas(activeDeviceId, canvasRef.current);
+    }
+    return () => {
+      if (onRegisterCanvas) {
+        onRegisterCanvas(activeDeviceId, null);
+      }
+    };
+  }, [activeDeviceId, onRegisterCanvas, canvasRef]);
 
   // Feature #2: Drag & Drop File Sideloading State
   const [isDragOver, setIsDragOver] = useState(false);
@@ -346,7 +367,7 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
         <div
           className="relative rounded-[2.6rem] bg-black overflow-hidden flex items-center justify-center shadow-inner border border-slate-800/80 transition-all"
           style={{
-            height: 'min(76vh, 740px)',
+            height: isCompact ? 'min(65vh, 560px)' : 'min(76vh, 740px)',
             aspectRatio: meta
               ? `${meta.physicalWidth || meta.width} / ${meta.physicalHeight || meta.height}`
               : '9 / 19.5',
