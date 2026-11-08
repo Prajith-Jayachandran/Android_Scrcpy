@@ -105,36 +105,62 @@ chmod +x install.sh
 ./install.sh
 ```
 
-> **What `install.sh` does automatically:**
-> - Detects your OS (`Linux`, `macOS`, or `Windows`).
-> - Installs prerequisites (`android-tools`, `curl`, `unzip`, `nodejs`) using your native package manager (`apt-get`, `pacman`, `dnf`, `brew`).
-> - Gracefully downloads standalone Google platform-tools if package manager access is restricted.
-> - Verifies and downloads the headless `scrcpy-server.jar` Android agent.
-> - Installs dependencies (`npm install`) and builds the production Next.js bundle (`npm run build`).
-> - **System & App Launcher Deployment**:
->   - Deploys application files to `~/.local/share/aether-mirror`.
->   - Registers the application in your desktop App Launcher (`~/.local/share/applications/aether-mirror.desktop`).
->   - Creates a convenient terminal CLI wrapper at `~/.local/bin/aether-mirror`.
->   - Generates an automated uninstaller at `~/.local/share/aether-mirror/uninstallation.sh`.
->   - Automatically cleans up the temporary source installer folder. Pass `--keep-source` if you wish to preserve the development repository.
+> **What `install.sh` does automatically across platforms:**
+> - **OS & Toolchain Detection**: Automatically identifies `Linux`, `macOS`, or `Windows` (Git Bash, MSYS2, WSL, Cygwin).
+> - **ADB & Agent Verification**: Automatically downloads and installs Google Platform-Tools (`adb` / `adb.exe`) and `scrcpy-server.jar` tailored to your platform.
+> - **Production Build**: Installs dependencies and compiles the Next.js production build (`npm run build`).
+> - **System & App Launcher Integration**:
+>   - **Linux**: Deploys to `~/.local/share/aether-mirror`, installs `~/.local/share/applications/aether-mirror.desktop`, and adds `~/.local/bin/aether-mirror`.
+>   - **macOS**: Creates native `~/Applications/Aether Mirror.app` bundle (accessible in Spotlight, Launchpad, and Applications folder) and CLI command `aether-mirror`.
+>   - **Windows**: Deploys to `%LOCALAPPDATA%\AetherMirror`, generates `Aether Mirror.lnk` on your **Desktop** and **Start Menu**, and creates `start.bat`.
+> - **Clean Uninstallation**: Installs `uninstallation.sh` and Windows `uninstallation.bat` for 1-click removal.
+> - **Auto Cleanup**: Cleans up the temporary source installer folder. Pass `--keep-source` if you wish to preserve the development repository.
 
-### 3. Launch the Application
-You can now launch the application in any of three ways:
-1. **Application Launcher**: Search for **"Aether Mirror"** in your desktop app menu or dock.
-2. **Terminal Command**: Run `aether-mirror` from any shell.
-3. **Direct Script**: Run `./start.sh` from the installation directory (`~/.local/share/aether-mirror`).
+### 3. Launching the Application
 
-The launcher automatically initiates the background server and opens your browser at **[http://localhost:3000](http://localhost:3000)**.
+#### 🐧 Linux
+* **App Launcher**: Search for **"Aether Mirror"** in your application launcher or dock.
+* **Terminal**: Run `aether-mirror` from any shell.
+* **Direct**: Run `~/.local/share/aether-mirror/start.sh`.
+
+#### 🍎 macOS
+* **Spotlight / Launchpad**: Press `Cmd + Space` and search for **"Aether Mirror"**, or open it from Launchpad.
+* **Terminal**: Run `aether-mirror`.
+* **Direct**: Open `~/Applications/Aether Mirror.app`.
+
+#### 🪟 Windows
+* **Desktop Shortcut**: Double-click **`Aether Mirror.lnk`** on your Desktop.
+* **Start Menu**: Search for **"Aether Mirror"** in the Windows Start Menu.
+* **Batch Launcher**: Double-click `%LOCALAPPDATA%\AetherMirror\start.bat`.
+
+> **Note on Windows Desktop Shortcut (.lnk):**
+> If you are setting up manually or need to regenerate the Windows desktop shortcut:
+> 1. Open PowerShell and run:
+>    ```powershell
+>    powershell -ExecutionPolicy Bypass -File "%LOCALAPPDATA%\AetherMirror\create_desktop_shortcut.ps1"
+>    ```
+> 2. Or right-click `%LOCALAPPDATA%\AetherMirror\start.bat` -> **Send to** -> **Desktop (create shortcut)**, right-click the new shortcut -> **Properties** -> **Change Icon** -> select `public\icon.ico`.
 
 ---
 
 ## 🗑️ Uninstallation
 
-To completely remove Aether Mirror, all associated desktop shortcuts, icons, and installed files:
+### 🐧 Linux & 🍎 macOS
+Run the unified uninstaller script to remove all app files, desktop shortcuts, and icons:
 ```bash
+# Linux
 ~/.local/share/aether-mirror/uninstallation.sh
+
+# macOS
+~/Applications/Aether\ Mirror.app/Contents/Resources/app/uninstallation.sh
 ```
-Or run `uninstall.sh` inside the installation folder.
+
+### 🪟 Windows
+Double-click `uninstallation.bat` located inside your installation directory:
+```cmd
+%LOCALAPPDATA%\AetherMirror\uninstallation.bat
+```
+Or run `uninstallation.sh` via Git Bash / WSL. This terminates running server processes, removes Desktop and Start Menu `.lnk` shortcuts, and purges application files.
 
 ---
 

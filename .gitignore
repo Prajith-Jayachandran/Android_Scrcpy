@@ -19,6 +19,7 @@ bin/fastboot*
 *.zip
 *.png
 !public/*.png
+!public/*.ico
 temp_unzip/
 
 # Logs

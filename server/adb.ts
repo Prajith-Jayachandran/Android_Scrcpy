@@ -22,23 +22,31 @@ export class AdbManager {
   }
 
   private resolveAdbPath(): string {
+    const isWin = process.platform === 'win32';
+    const exe = isWin ? '.exe' : '';
     const candidates = [
+      path.resolve(__dirname, `../bin/adb${exe}`),
       path.resolve(__dirname, '../bin/adb'),
+      path.resolve(os.homedir(), `.local/bin/adb${exe}`),
       path.resolve(os.homedir(), '.local/bin/adb'),
+      isWin && process.env.LOCALAPPDATA ? path.resolve(process.env.LOCALAPPDATA, 'Android/Sdk/platform-tools/adb.exe') : null,
       '/usr/local/bin/adb',
       '/usr/bin/adb',
+      `adb${exe}`,
       'adb'
-    ];
+    ].filter(Boolean) as string[];
 
     for (const p of candidates) {
       if (fs.existsSync(p)) {
         try {
-          fs.accessSync(p, fs.constants.X_OK);
+          if (!isWin) {
+            fs.accessSync(p, fs.constants.X_OK);
+          }
           return p;
         } catch {}
       }
     }
-    return 'adb';
+    return `adb${exe}`;
   }
 
   public getAdbPath(): string {
