@@ -127,7 +127,7 @@ export function useMultiWebCodecs() {
     (deviceId: string, canvas: HTMLCanvasElement | null) => {
       const entry = getOrCreateDeviceEntry(deviceId);
       entry.canvas = canvas;
-      if (!entry.decoder || entry.decoder.state === 'closed') {
+      if (canvas && (!entry.decoder || entry.decoder.state === 'closed')) {
         configureDeviceDecoder(deviceId, entry.currentCodec);
       }
     },
@@ -137,12 +137,7 @@ export function useMultiWebCodecs() {
   const unregisterCanvas = useCallback((deviceId: string) => {
     const entry = devicesRef.current.get(deviceId);
     if (entry) {
-      if (entry.decoder && entry.decoder.state !== 'closed') {
-        try {
-          entry.decoder.close();
-        } catch (e) {}
-      }
-      devicesRef.current.delete(deviceId);
+      entry.canvas = null;
     }
   }, []);
 

@@ -47,8 +47,14 @@ app.prepare().then(() => {
     activeDeviceId?: string;
   }
 
+  let stopTimeout: NodeJS.Timeout | null = null;
+
   wss.on('connection', (ws: ExtendedWebSocket) => {
     console.log('[WS] Client connected');
+    if (stopTimeout) {
+      clearTimeout(stopTimeout);
+      stopTimeout = null;
+    }
 
     const sendLog = (message: string) => {
       if (ws.readyState === WebSocket.OPEN) {
@@ -105,7 +111,7 @@ app.prepare().then(() => {
             }
 
             // 3. Spawn safe server process on device
-            sendLog(`Spawning safe scrcpy-server on Android...`);
+            sendLog(`Spawning safe scrcpy-server on Android (${deviceId})...`);
             const proc = adb.spawnServer(deviceId);
 
             const session: StreamSession = {
@@ -125,15 +131,24 @@ app.prepare().then(() => {
           }
 
           case 'stop-stream': {
-            const targetDev = msg.deviceId || ws.activeDeviceId;
+            const targetDev = msg.deviceId;
             if (targetDev) {
-              sendLog(`Stopping active stream for ${targetDev}...`);
+              sendLog(`Stopping stream for ${targetDev}...`);
               await stopSession(targetDev);
+              for (const client of wss.clients) {
+                if (client.readyState === WebSocket.OPEN) {
+                  client.send(JSON.stringify({ type: 'stream-stopped', deviceId: targetDev }));
+                }
+              }
             } else {
               sendLog(`Stopping all active streams...`);
               await stopAllSessions();
+              for (const client of wss.clients) {
+                if (client.readyState === WebSocket.OPEN) {
+                  client.send(JSON.stringify({ type: 'stream-stopped' }));
+                }
+              }
             }
-            ws.send(JSON.stringify({ type: 'stream-stopped', deviceId: targetDev }));
             break;
           }
 
@@ -314,7 +329,13 @@ app.prepare().then(() => {
     ws.on('close', () => {
       console.log('[WS] Client disconnected');
       if (wss.clients.size === 0) {
-        stopAllSessions();
+        if (stopTimeout) clearTimeout(stopTimeout);
+        stopTimeout = setTimeout(() => {
+          if (wss.clients.size === 0) {
+            console.log('[WS] No active browser clients for 4s. Cleaning up streaming sessions.');
+            stopAllSessions();
+          }
+        }, 4000);
       }
     });
   });

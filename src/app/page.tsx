@@ -20,6 +20,11 @@ export default function Home() {
 
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
+  const selectedDeviceIdRef = useRef<string>('');
+  useEffect(() => {
+    selectedDeviceIdRef.current = selectedDeviceId;
+  }, [selectedDeviceId]);
+
   const [streamingDeviceIds, setStreamingDeviceIds] = useState<Set<string>>(new Set());
   const [deviceMetas, setDeviceMetas] = useState<Record<string, StreamMeta>>({});
   const [isScanning, setIsScanning] = useState<boolean>(false);
@@ -194,7 +199,7 @@ export default function Home() {
         const view = new Uint8Array(event.data);
         if (view[0] === 0x01) {
           const idLen = view[1];
-          let targetDevId = selectedDeviceId;
+          let targetDevId = selectedDeviceIdRef.current;
           let flags = 0;
           let pts = 0;
           let naluPayload: Uint8Array;
@@ -236,14 +241,14 @@ export default function Home() {
               isManualRefreshRef.current = false;
               // Check for any unlinked USB device
               const unlinkedDevice = newDevices.find(
-                (d) => d.status === 'device' && (!selectedDeviceId || d.id !== selectedDeviceId)
+                (d) => d.status === 'device' && (!selectedDeviceIdRef.current || d.id !== selectedDeviceIdRef.current)
               );
 
               if (unlinkedDevice) {
                 setDetectedUsbDevice(unlinkedDevice);
                 setNewUsbModalOpen(true);
                 addLog(`Detected USB device: ${unlinkedDevice.model || unlinkedDevice.id}. Prompting to link...`);
-              } else if (newDevices.length > 0 && !selectedDeviceId) {
+              } else if (newDevices.length > 0 && !selectedDeviceIdRef.current) {
                 setDetectedUsbDevice(newDevices[0]);
                 setNewUsbModalOpen(true);
               } else if (newDevices.length > 0) {
@@ -254,7 +259,7 @@ export default function Home() {
               }
             } else {
               // Automatic initial selection on load if none selected yet
-              if (newDevices.length > 0 && !selectedDeviceId) {
+              if (newDevices.length > 0 && !selectedDeviceIdRef.current) {
                 const readyDev = newDevices.find((d: DeviceInfo) => d.status === 'device');
                 setSelectedDeviceId(readyDev ? readyDev.id : newDevices[0].id);
               }
@@ -263,24 +268,26 @@ export default function Home() {
           }
 
           case 'meta': {
-            const devId = msg.deviceId || selectedDeviceId;
-            setDeviceMetas((prev) => ({
-              ...prev,
-              [devId]: {
-                codec: msg.codec,
-                width: msg.width,
-                height: msg.height,
-                physicalWidth: msg.physicalWidth,
-                physicalHeight: msg.physicalHeight,
-                deviceId: devId,
-              },
-            }));
-            setStreamingDeviceIds((prev) => new Set(prev).add(devId));
+            const devId = msg.deviceId || selectedDeviceIdRef.current;
+            if (devId) {
+              setDeviceMetas((prev) => ({
+                ...prev,
+                [devId]: {
+                  codec: msg.codec,
+                  width: msg.width,
+                  height: msg.height,
+                  physicalWidth: msg.physicalWidth,
+                  physicalHeight: msg.physicalHeight,
+                  deviceId: devId,
+                },
+              }));
+              setStreamingDeviceIds((prev) => new Set(prev).add(devId));
+            }
             break;
           }
 
           case 'stream-stopped': {
-            const stoppedDevId = msg.deviceId || selectedDeviceId;
+            const stoppedDevId = msg.deviceId || selectedDeviceIdRef.current;
             if (stoppedDevId) {
               setStreamingDeviceIds((prev) => {
                 const next = new Set(prev);
@@ -293,14 +300,14 @@ export default function Home() {
           }
 
           case 'privacy-mode-status': {
-            if (msg.deviceId === selectedDeviceId) {
+            if (msg.deviceId === selectedDeviceIdRef.current) {
               setPrivacyMode(msg.enabled);
             }
             break;
           }
 
           case 'game-mode-status': {
-            if (msg.deviceId === selectedDeviceId) {
+            if (msg.deviceId === selectedDeviceIdRef.current) {
               setIsGameActive(msg.isGame);
               setActivePackage(msg.package);
             }
@@ -329,7 +336,7 @@ export default function Home() {
     return () => {
       ws.close();
     };
-  }, [addLog, decodeChunk, resetDecoder, selectedDeviceId]);
+  }, [addLog, decodeChunk, resetDecoder]);
 
   // Periodic device scanning when not all devices streaming
   useEffect(() => {
