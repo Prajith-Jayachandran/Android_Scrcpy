@@ -110,15 +110,31 @@ chmod +x install.sh
 > - Installs prerequisites (`android-tools`, `curl`, `unzip`, `nodejs`) using your native package manager (`apt-get`, `pacman`, `dnf`, `brew`).
 > - Gracefully downloads standalone Google platform-tools if package manager access is restricted.
 > - Verifies and downloads the headless `scrcpy-server.jar` Android agent.
-> - Installs dependencies (`npm install`) and builds the Next.js bundle (`npm run build`).
+> - Installs dependencies (`npm install`) and builds the production Next.js bundle (`npm run build`).
+> - **System & App Launcher Deployment**:
+>   - Deploys application files to `~/.local/share/aether-mirror`.
+>   - Registers the application in your desktop App Launcher (`~/.local/share/applications/aether-mirror.desktop`).
+>   - Creates a convenient terminal CLI wrapper at `~/.local/bin/aether-mirror`.
+>   - Generates an automated uninstaller at `~/.local/share/aether-mirror/uninstallation.sh`.
+>   - Automatically cleans up the temporary source installer folder. Pass `--keep-source` if you wish to preserve the development repository.
 
 ### 3. Launch the Application
-```bash
-chmod +x start.sh
-./start.sh
-```
+You can now launch the application in any of three ways:
+1. **Application Launcher**: Search for **"Aether Mirror"** in your desktop app menu or dock.
+2. **Terminal Command**: Run `aether-mirror` from any shell.
+3. **Direct Script**: Run `./start.sh` from the installation directory (`~/.local/share/aether-mirror`).
 
-Open your browser and navigate to **[http://localhost:3000](http://localhost:3000)**.
+The launcher automatically initiates the background server and opens your browser at **[http://localhost:3000](http://localhost:3000)**.
+
+---
+
+## 🗑️ Uninstallation
+
+To completely remove Aether Mirror, all associated desktop shortcuts, icons, and installed files:
+```bash
+~/.local/share/aether-mirror/uninstallation.sh
+```
+Or run `uninstall.sh` inside the installation folder.
 
 ---
 
@@ -166,7 +182,7 @@ npm start
 ```
 
 ### Automated End-to-End Smoke Test Suite
-The project includes an automated end-to-end smoke test suite verifying all 9 critical layers:
+The project includes an automated end-to-end smoke test suite verifying all 10 critical layers:
 1. Environment & ADB binary dependencies.
 2. Authorized Android hardware detection.
 3. Next.js HTTP dashboard health (HTTP 200).
@@ -176,3 +192,4 @@ The project includes an automated end-to-end smoke test suite verifying all 9 cr
 7. Input gestures (Wake Key, Tap, Swipe flick).
 8. Stream teardown & port release (`stop-stream`).
 9. Android system stability & kernel health.
+10. Desktop App Launcher (`.desktop`), `~/.local` deployment, uninstaller & project cleanup lifecycle.

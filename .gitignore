@@ -18,6 +18,7 @@ bin/fastboot*
 # Temporary / Cache / Zip files
 *.zip
 *.png
+!public/*.png
 temp_unzip/
 
 # Logs
