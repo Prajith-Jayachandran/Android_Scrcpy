@@ -63,6 +63,7 @@ export default function Home() {
   const { registerCanvas, decodeChunk, resetDecoder, fpsMap } = useMultiWebCodecs();
 
   // Current active device streaming state and fps
+  const activeDevice = devices.find((d) => d.id === selectedDeviceId);
   const isStreaming = streamingDeviceIds.has(selectedDeviceId);
   const activeMeta = deviceMetas[selectedDeviceId] || null;
   const currentFps = fpsMap[selectedDeviceId] || 0;
@@ -135,6 +136,7 @@ export default function Home() {
 
   // Feature #8: Macro Recorder Hook
   const macroRecorder = useMacroRecorder({
+    deviceId: selectedDeviceId,
     onDispatchTap: (x, y) => rawTap(selectedDeviceId, x, y),
     onDispatchSwipe: (x1, y1, x2, y2, d) => rawSwipe(selectedDeviceId, x1, y1, x2, y2, d),
     onDispatchKey: (code) => rawSendKey(selectedDeviceId, code),
@@ -554,6 +556,7 @@ export default function Home() {
 
         {/* Feature #8: Macro Timeline Automator */}
         <MacroEditor
+          targetDeviceName={activeDevice ? `${activeDevice.model || activeDevice.product || activeDevice.id}` : undefined}
           isRecording={macroRecorder.isRecording}
           isPlaying={macroRecorder.isPlaying}
           steps={macroRecorder.steps}
@@ -566,9 +569,9 @@ export default function Home() {
           onStopPlayback={macroRecorder.stopPlayback}
           onSetSpeed={macroRecorder.setSpeedMultiplier}
           onSetLoop={macroRecorder.setLoopCount}
-          onDeleteStep={(id) => macroRecorder.setSteps((prev) => prev.filter((s) => s.id !== id))}
-          onClearSteps={() => macroRecorder.setSteps([])}
-          onImportSteps={(imported) => macroRecorder.setSteps(imported)}
+          onDeleteStep={macroRecorder.deleteStep}
+          onClearSteps={macroRecorder.clearSteps}
+          onImportSteps={macroRecorder.importSteps}
         />
       </aside>
 

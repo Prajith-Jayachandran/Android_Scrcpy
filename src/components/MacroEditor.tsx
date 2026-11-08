@@ -11,6 +11,7 @@ interface MacroEditorProps {
   currentStepIndex: number;
   speedMultiplier: number;
   loopCount: number;
+  targetDeviceName?: string;
   onStartRecording: () => void;
   onStopRecording: () => void;
   onPlay: () => void;
@@ -29,6 +30,7 @@ export const MacroEditor: React.FC<MacroEditorProps> = ({
   currentStepIndex,
   speedMultiplier,
   loopCount,
+  targetDeviceName,
   onStartRecording,
   onStopRecording,
   onPlay,
@@ -47,7 +49,8 @@ export const MacroEditor: React.FC<MacroEditorProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `aether_macro_${Date.now()}.json`;
+    const cleanName = (targetDeviceName || 'device').replace(/[^a-zA-Z0-9_-]/g, '_');
+    a.download = `aether_macro_${cleanName}_${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -94,7 +97,12 @@ export const MacroEditor: React.FC<MacroEditorProps> = ({
           <h3 className="text-xs font-bold tracking-wider uppercase text-slate-200">
             Workflow Automator
           </h3>
-          <span className="text-[10px] text-indigo-400 font-mono">Macro</span>
+          {targetDeviceName && (
+            <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-1.5 py-0.5 rounded-md font-mono truncate max-w-[140px]" title={targetDeviceName}>
+              {targetDeviceName}
+            </span>
+          )}
+          <span className="text-[10px] text-slate-400 font-mono">Macro</span>
         </div>
 
         {isRecording && (
