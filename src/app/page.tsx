@@ -8,12 +8,12 @@ import { DiagnosticsPanel } from '@/components/DiagnosticsPanel';
 import { LogsConsole } from '@/components/LogsConsole';
 import { CursorTrail } from '@/components/CursorTrail';
 import { DeviceTabBar } from '@/components/DeviceTabBar';
-import { WirelessModal } from '@/components/WirelessModal';
+import { NewUsbDeviceModal } from '@/components/NewUsbDeviceModal';
 import { MacroEditor } from '@/components/MacroEditor';
 import { useWebCodecs } from '@/hooks/useWebCodecs';
 import { useMacroRecorder } from '@/hooks/useMacroRecorder';
-import { DeviceInfo, StreamMeta, LogMessage, MacroStep } from '@/lib/types';
-import { Cast, ShieldCheck, Gamepad2 } from 'lucide-react';
+import { DeviceInfo, StreamMeta, LogMessage } from '@/lib/types';
+import { Cast, ShieldCheck } from 'lucide-react';
 
 export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -34,12 +34,14 @@ export default function Home() {
   // Feature #10: Quick-Draw Privacy Mode State
   const [privacyMode, setPrivacyMode] = useState<boolean>(false);
 
-  // Feature #7: Wireless Link Modal State
-  const [isWirelessModalOpen, setIsWirelessModalOpen] = useState<boolean>(false);
-
   // Feature #3: Context-Aware Game Detection State
   const [isGameActive, setIsGameActive] = useState<boolean>(false);
   const [activePackage, setActivePackage] = useState<string>('');
+
+  // USB Multi-Device Link Pop-up Modal State
+  const [newUsbModalOpen, setNewUsbModalOpen] = useState<boolean>(false);
+  const [detectedUsbDevice, setDetectedUsbDevice] = useState<DeviceInfo | null>(null);
+  const isManualRefreshRef = useRef<boolean>(false);
 
   const addLog = useCallback((message: string) => {
     setLogs((prev) => [
@@ -203,15 +205,42 @@ export default function Home() {
         switch (msg.type) {
           case 'devices':
             setIsScanning(false);
-            setDevices(msg.devices || []);
-            if (msg.devices && msg.devices.length > 0 && !selectedDeviceId) {
-              const readyDev = msg.devices.find((d: DeviceInfo) => d.status === 'device');
-              setSelectedDeviceId(readyDev ? readyDev.id : msg.devices[0].id);
+            const newDevices: DeviceInfo[] = msg.devices || [];
+            setDevices(newDevices);
+
+            // Handle Manual Refresh Pop-up trigger
+            if (isManualRefreshRef.current) {
+              isManualRefreshRef.current = false;
+              // Check for any authorized USB device
+              // Prefer a device that is not currently selected or not streaming yet
+              const unlinkedDevice = newDevices.find(
+                (d) => d.status === 'device' && (!selectedDeviceId || d.id !== selectedDeviceId)
+              );
+
+              if (unlinkedDevice) {
+                setDetectedUsbDevice(unlinkedDevice);
+                setNewUsbModalOpen(true);
+                addLog(`Detected USB device: ${unlinkedDevice.model || unlinkedDevice.id}. Prompting to create link tab...`);
+              } else if (newDevices.length > 0 && !selectedDeviceId) {
+                setDetectedUsbDevice(newDevices[0]);
+                setNewUsbModalOpen(true);
+              } else if (newDevices.length > 0) {
+                // If all are already selected, allow re-linking current device or inform user
+                setDetectedUsbDevice(newDevices[0]);
+                setNewUsbModalOpen(true);
+              } else {
+                addLog('No USB devices detected. Connect a phone via USB with USB debugging enabled.');
+              }
+            } else {
+              // Automatic initial selection
+              if (newDevices.length > 0 && !selectedDeviceId) {
+                const readyDev = newDevices.find((d: DeviceInfo) => d.status === 'device');
+                setSelectedDeviceId(readyDev ? readyDev.id : newDevices[0].id);
+              }
             }
             break;
 
           case 'meta':
-            // Verify this metadata corresponds to our selected device
             if (!msg.deviceId || msg.deviceId === selectedDeviceId) {
               setStreamMeta({
                 codec: msg.codec,
@@ -253,25 +282,6 @@ export default function Home() {
               setIsGameActive(msg.isGame);
               setActivePackage(msg.package);
             }
-            break;
-
-          case 'switch-tcpip-result':
-            addLog(
-              msg.success
-                ? `✔ Successfully converted ${msg.deviceId} to Wi-Fi at ${msg.ip}:5555!`
-                : `✖ Wi-Fi transition failed: ${msg.message}`
-            );
-            // Refresh device list
-            ws.send(JSON.stringify({ type: 'get-devices' }));
-            break;
-
-          case 'wireless-result':
-            addLog(
-              msg.success
-                ? `✔ Wireless connection succeeded: ${msg.message}`
-                : `✖ Wireless connection failed: ${msg.message}`
-            );
-            ws.send(JSON.stringify({ type: 'get-devices' }));
             break;
 
           case 'log':
@@ -328,25 +338,31 @@ export default function Home() {
     return () => clearInterval(gameCheckTimer);
   }, [isStreaming, selectedDeviceId]);
 
-  // Actions
-  const refreshDevices = useCallback(() => {
+  // Manual Refresh Button Action -> Requests devices and sets flag for pop-up
+  const handleManualRefresh = useCallback(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       setIsScanning(true);
+      isManualRefreshRef.current = true;
+      addLog('Scanning for connected USB devices...');
       wsRef.current.send(JSON.stringify({ type: 'get-devices' }));
     }
-  }, []);
+  }, [addLog]);
 
-  const startStream = useCallback(() => {
-    if (!selectedDeviceId || !wsRef.current) return;
-    resetDecoder();
-    setIsStreaming(true);
-    wsRef.current.send(
-      JSON.stringify({
-        type: 'start-stream',
-        deviceId: selectedDeviceId,
-      })
-    );
-  }, [selectedDeviceId, resetDecoder]);
+  const startStream = useCallback(
+    (targetId?: string) => {
+      const devId = targetId || selectedDeviceId;
+      if (!devId || !wsRef.current) return;
+      resetDecoder();
+      setIsStreaming(true);
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'start-stream',
+          deviceId: devId,
+        })
+      );
+    },
+    [selectedDeviceId, resetDecoder]
+  );
 
   const stopStream = useCallback(() => {
     if (!wsRef.current) return;
@@ -355,7 +371,39 @@ export default function Home() {
     setFps(0);
   }, [selectedDeviceId]);
 
-  // Feature #4: Tab switching (Oppo = 1, Vivo = 2)
+  // Handle Dropdown Device Selection: Spawns tab and auto-runs mirroring
+  const handleSelectDeviceFromDropdown = useCallback(
+    (deviceId: string) => {
+      if (!deviceId) return;
+      setSelectedDeviceId(deviceId);
+      resetDecoder();
+
+      const targetDev = devices.find((d) => d.id === deviceId);
+      const brand = targetDev?.model || targetDev?.product || deviceId;
+
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: 'select-device',
+            deviceId,
+          })
+        );
+
+        // Automatically spawn/activate tab and start mirror
+        setIsStreaming(true);
+        wsRef.current.send(
+          JSON.stringify({
+            type: 'start-stream',
+            deviceId,
+          })
+        );
+        addLog(`✔ Spawning Tab for ${brand} and initializing mirror...`);
+      }
+    },
+    [devices, resetDecoder, addLog]
+  );
+
+  // Handle Tab Click in top tab bar
   const handleSelectTab = useCallback(
     (newDeviceId: string) => {
       if (newDeviceId === selectedDeviceId) return;
@@ -370,14 +418,46 @@ export default function Home() {
           })
         );
 
-        // If newly selected device is already streaming, request fresh sync or start
         if (!streamingDeviceIds.has(newDeviceId)) {
-          startStream();
+          startStream(newDeviceId);
         }
       }
     },
     [selectedDeviceId, streamingDeviceIds, resetDecoder, startStream]
   );
+
+  // Confirm Pop-up: Spawn New USB Link Tab & Automatically Start Mirroring
+  const handleConfirmNewUsbLink = useCallback(() => {
+    if (!detectedUsbDevice) return;
+    const targetId = detectedUsbDevice.id;
+    const brand = detectedUsbDevice.model || detectedUsbDevice.product || targetId;
+    setNewUsbModalOpen(false);
+
+    // Switch to this device tab
+    setSelectedDeviceId(targetId);
+    resetDecoder();
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'select-device',
+          deviceId: targetId,
+        })
+      );
+
+      // Automatically spawn tab and start mirroring
+      setIsStreaming(true);
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'start-stream',
+          deviceId: targetId,
+        })
+      );
+    }
+
+    addLog(`✔ Created new USB link tab for ${brand} and started mirroring!`);
+    setDetectedUsbDevice(null);
+  }, [detectedUsbDevice, resetDecoder, addLog]);
 
   // Feature #10: Toggle Quick-Draw Privacy Mode
   const togglePrivacyMode = useCallback(() => {
@@ -392,53 +472,6 @@ export default function Home() {
       })
     );
   }, [privacyMode, selectedDeviceId]);
-
-  // Feature #7: Wireless Link Handlers
-  const handleSwitchTcpip = useCallback(
-    (deviceId: string) => {
-      if (!wsRef.current) return;
-      addLog(`Initiating 1-Click Wi-Fi conversion for ${deviceId}...`);
-      wsRef.current.send(
-        JSON.stringify({
-          type: 'switch-tcpip',
-          deviceId,
-        })
-      );
-    },
-    [addLog]
-  );
-
-  const handleConnectWireless = useCallback(
-    (ip: string, port = 5555) => {
-      if (!wsRef.current) return;
-      addLog(`Connecting wirelessly to ${ip}:${port}...`);
-      wsRef.current.send(
-        JSON.stringify({
-          type: 'connect-wireless',
-          ip,
-          port,
-        })
-      );
-    },
-    [addLog]
-  );
-
-  const handlePairWireless = useCallback(
-    (ip: string, port: number, code: string, connectPort?: number) => {
-      if (!wsRef.current) return;
-      addLog(`Pairing wirelessly with ${ip}:${port} (code: ${code})...`);
-      wsRef.current.send(
-        JSON.stringify({
-          type: 'pair-wireless',
-          ip,
-          port,
-          code,
-          connectPort,
-        })
-      );
-    },
-    [addLog]
-  );
 
   // Feature #6: Clipboard paste handler
   const handleClipboardPaste = useCallback(
@@ -455,19 +488,26 @@ export default function Home() {
     [selectedDeviceId]
   );
 
+  // Compute tab number for modal
+  const targetTabNumber = detectedUsbDevice
+    ? devices.findIndex((d) => d.id === detectedUsbDevice.id) + 1 || devices.length + 1
+    : 1;
+
   return (
     <main className="relative flex h-screen w-screen bg-[#04060c] overflow-hidden text-slate-100 font-sans select-none">
       {/* Lightweight, GPU-friendly Cursor Trail */}
       <CursorTrail />
 
-      {/* Feature #7: Dual-Mode Wireless Modal */}
-      <WirelessModal
-        isOpen={isWirelessModalOpen}
-        onClose={() => setIsWirelessModalOpen(false)}
-        activeDeviceId={selectedDeviceId}
-        onSwitchTcpip={handleSwitchTcpip}
-        onConnectWireless={handleConnectWireless}
-        onPairWireless={handlePairWireless}
+      {/* Pop-up: Create New Link via USB Modal */}
+      <NewUsbDeviceModal
+        isOpen={newUsbModalOpen}
+        device={detectedUsbDevice}
+        targetTabNumber={targetTabNumber}
+        onConfirm={handleConfirmNewUsbLink}
+        onCancel={() => {
+          setNewUsbModalOpen(false);
+          setDetectedUsbDevice(null);
+        }}
       />
 
       {/* Static 3D Ambient Mesh Glow (Zero CPU/Compositor Load) */}
@@ -511,15 +551,16 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Device Manager Glass Card */}
+        {/* Device Manager Glass Card with Dropdown and Refresh */}
         <DeviceManager
           devices={devices}
           selectedDeviceId={selectedDeviceId}
-          onSelectDevice={handleSelectTab}
-          onRefresh={refreshDevices}
+          streamingDeviceIds={streamingDeviceIds}
+          onSelectDevice={handleSelectDeviceFromDropdown}
+          onRefresh={handleManualRefresh}
           isScanning={isScanning}
           isStreaming={isStreaming}
-          onStartStream={startStream}
+          onStartStream={() => startStream()}
           onStopStream={stopStream}
         />
 
@@ -546,7 +587,7 @@ export default function Home() {
         />
       </aside>
 
-      {/* Main Viewport: Multi-Device Tabs & 3D Perspective Stage */}
+      {/* Main Viewport: Multi-Device Numbered Tabs & 3D Perspective Stage */}
       <section className="flex-1 flex flex-col items-center justify-between p-4 relative overflow-hidden z-10">
         {/* Feature #4: Multi-Device Numbered Tabs (Oppo = 1, Vivo = 2, etc.) */}
         <DeviceTabBar
@@ -558,7 +599,6 @@ export default function Home() {
           onSelectTab={handleSelectTab}
           onToggleSync={() => setSyncAll(!syncAll)}
           onTogglePrivacy={togglePrivacyMode}
-          onOpenWirelessModal={() => setIsWirelessModalOpen(true)}
         />
 
         {/* Active Smartphone Display Stage with Drag & Drop Sideloading + Gamepad HUD */}

@@ -2,11 +2,12 @@
 
 import React from 'react';
 import { DeviceInfo } from '../lib/types';
-import { Smartphone, RefreshCw, Play, Square, CheckCircle, AlertTriangle, XCircle, Cpu } from 'lucide-react';
+import { Smartphone, RefreshCw, Play, Square, CheckCircle, AlertTriangle, XCircle, Usb, Plus } from 'lucide-react';
 
 interface DeviceManagerProps {
   devices: DeviceInfo[];
   selectedDeviceId: string;
+  streamingDeviceIds?: Set<string>;
   onSelectDevice: (id: string) => void;
   onRefresh: () => void;
   isScanning: boolean;
@@ -18,6 +19,7 @@ interface DeviceManagerProps {
 export const DeviceManager: React.FC<DeviceManagerProps> = ({
   devices,
   selectedDeviceId,
+  streamingDeviceIds = new Set(),
   onSelectDevice,
   onRefresh,
   isScanning,
@@ -39,39 +41,45 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({
           </div>
           <div>
             <h2 className="text-xs font-bold tracking-wider uppercase text-slate-200">
-              Target Device
+              USB Hardware Link
             </h2>
-            <p className="text-[10px] text-slate-400">USB / Wi-Fi ADB Link</p>
+            <p className="text-[10px] text-slate-400">Multi-Device USB Bridge</p>
           </div>
         </div>
 
         <button
           onClick={onRefresh}
-          disabled={isScanning || isStreaming}
-          className="p-2 rounded-xl bg-slate-800/50 hover:bg-slate-700/60 border border-slate-700/60 text-slate-300 hover:text-white transition-all disabled:opacity-40 shadow-sm"
-          title="Refresh ADB Devices"
+          disabled={isScanning}
+          className="p-2 rounded-xl bg-slate-800/50 hover:bg-slate-700/60 border border-slate-700/60 text-slate-300 hover:text-white transition-all disabled:opacity-40 shadow-sm group/btn"
+          title="Scan for New USB Devices &amp; Create New Link"
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin text-indigo-400' : ''}`} />
+          <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin text-indigo-400' : 'group-hover/btn:rotate-90 transition-transform'}`} />
         </button>
       </div>
 
-      {/* Device Selector */}
+      {/* Device Selector Dropdown */}
       <div className="flex flex-col gap-2">
         <div className="relative">
           <select
             value={selectedDeviceId}
             onChange={(e) => onSelectDevice(e.target.value)}
-            disabled={isStreaming || devices.length === 0}
+            disabled={devices.length === 0}
             className="w-full bg-slate-950/70 border border-slate-700/80 rounded-xl px-3.5 py-2.5 text-xs text-slate-100 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20 transition-all disabled:opacity-50 cursor-pointer appearance-none"
           >
             {devices.length === 0 ? (
-              <option value="">No devices connected</option>
+              <option value="">No USB devices connected</option>
             ) : (
-              devices.map((device) => (
-                <option key={device.id} value={device.id} className="bg-slate-900 text-slate-100">
-                  {device.model || device.product || device.id} ({device.status})
-                </option>
-              ))
+              devices.map((device, index) => {
+                const brand = device.model || device.product || 'Android Device';
+                const isMirroring = streamingDeviceIds.has(device.id);
+                const isSelected = device.id === selectedDeviceId;
+
+                return (
+                  <option key={device.id} value={device.id} className="bg-slate-900 text-slate-100 py-1">
+                    Tab #{index + 1}: {brand} {isMirroring ? '🟢 (Active 60 FPS)' : isSelected ? '🔵 (Selected)' : '⚪ (Click to Spawn Tab & Mirror)'}
+                  </option>
+                );
+              })
             )}
           </select>
           <div className="absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 text-xs">
@@ -85,12 +93,14 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({
             selectedDevice.status === 'device' ? (
               <div className="inline-flex items-center gap-1.5 text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-3 py-1 rounded-full text-[11px] shadow-[0_0_12px_rgba(16,185,129,0.15)] font-medium">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span>Ready • ColorOS 16 Link</span>
+                <span>
+                  {selectedDevice.model || selectedDevice.product || 'Device'} • Ready via USB
+                </span>
               </div>
             ) : selectedDevice.status === 'unauthorized' ? (
               <div className="inline-flex items-center gap-1.5 text-amber-400 bg-amber-950/40 border border-amber-500/30 px-3 py-1 rounded-full text-[11px] font-medium">
                 <AlertTriangle className="w-3 h-3" />
-                <span>Confirm RSA Popup on Phone</span>
+                <span>Confirm RSA Prompt on Phone Screen</span>
               </div>
             ) : (
               <div className="inline-flex items-center gap-1.5 text-slate-400 bg-slate-800/40 border border-slate-700/40 px-3 py-1 rounded-full text-[11px]">
@@ -100,7 +110,7 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({
             )
           ) : (
             <div className="inline-flex items-center gap-1.5 text-slate-500 bg-slate-900/40 px-3 py-1 rounded-full text-[11px]">
-              <span>Waiting for connection...</span>
+              <span>Waiting for USB connection...</span>
             </div>
           )}
         </div>

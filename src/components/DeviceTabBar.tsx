@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Smartphone, Wifi, Usb, Layers, Check, Plus, Eye, EyeOff } from 'lucide-react';
+import { Smartphone, Usb, Layers, Eye, EyeOff } from 'lucide-react';
 import { DeviceInfo } from '@/lib/types';
 
 interface DeviceTabBarProps {
@@ -13,7 +13,6 @@ interface DeviceTabBarProps {
   onSelectTab: (deviceId: string) => void;
   onToggleSync: () => void;
   onTogglePrivacy: () => void;
-  onOpenWirelessModal: () => void;
 }
 
 export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
@@ -25,37 +24,28 @@ export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
   onSelectTab,
   onToggleSync,
   onTogglePrivacy,
-  onOpenWirelessModal,
 }) => {
-  // If no devices connected, show a placeholder
+  // If no devices connected, show a clean placeholder
   if (devices.length === 0) {
     return (
       <div className="flex items-center justify-between px-4 py-2 mb-3 rounded-2xl ultra-glass border border-white/10 w-full max-w-4xl mx-auto text-xs text-slate-400">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
-          <span>No devices linked. Connect via USB or Wi-Fi to start.</span>
+          <span>No USB devices connected. Plug in a phone with USB debugging enabled.</span>
         </div>
-        <button
-          onClick={onOpenWirelessModal}
-          className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 font-semibold text-xs transition-all"
-        >
-          <Wifi className="w-3.5 h-3.5" />
-          <span>Connect Wi-Fi</span>
-        </button>
       </div>
     );
   }
 
   return (
     <div className="flex items-center justify-between gap-3 px-4 py-2 mb-3 rounded-2xl ultra-glass border border-white/10 w-full max-w-4xl mx-auto shadow-2xl backdrop-blur-xl">
-      {/* Device Tabs (Oppo = 1, Vivo = 2, etc.) */}
+      {/* Device Tabs (Oppo = Tab 1, Vivo = Tab 2, etc.) */}
       <div className="flex items-center gap-2 overflow-x-auto py-0.5 no-scrollbar">
         {devices.map((device, index) => {
           const tabNumber = index + 1;
           const isActive = device.id === activeDeviceId;
           const isStreaming = streamingDeviceIds.has(device.id);
-          const isWireless = device.id.includes(':') || device.id.includes('.');
-          const brand = device.model || device.product || (isWireless ? 'Wireless Device' : 'Android Device');
+          const brand = device.model || device.product || 'Android Device';
 
           return (
             <button
@@ -76,12 +66,8 @@ export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
                 {tabNumber}
               </span>
 
-              {/* Connection Type Icon */}
-              {isWireless ? (
-                <Wifi className={`w-3.5 h-3.5 ${isActive ? 'text-cyan-200' : 'text-cyan-400'}`} />
-              ) : (
-                <Usb className={`w-3.5 h-3.5 ${isActive ? 'text-indigo-200' : 'text-slate-400'}`} />
-              )}
+              {/* USB Hardware Icon */}
+              <Usb className={`w-3.5 h-3.5 ${isActive ? 'text-indigo-200' : 'text-slate-400'}`} />
 
               {/* Device Brand & Model Name */}
               <span className="font-semibold tracking-tight whitespace-nowrap">
@@ -95,21 +81,11 @@ export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
             </button>
           );
         })}
-
-        {/* Add Wireless Device Tab Button */}
-        <button
-          onClick={onOpenWirelessModal}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-dashed border-white/20 text-xs font-semibold transition-all whitespace-nowrap"
-          title="Add Device via Wi-Fi Pairing / IP"
-        >
-          <Plus className="w-3.5 h-3.5 text-indigo-400" />
-          <span>New Link</span>
-        </button>
       </div>
 
       {/* Global Toolbar: Mirror Sync & Quick Privacy Mode */}
       <div className="flex items-center gap-2 flex-shrink-0">
-        {/* Mirror Sync (Broadcast inputs to all tabs) */}
+        {/* Mirror Sync (Broadcast inputs to all open tabs) */}
         <button
           onClick={onToggleSync}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
