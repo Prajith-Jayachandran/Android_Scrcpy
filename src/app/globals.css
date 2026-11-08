@@ -3,10 +3,8 @@
 @tailwind utilities;
 
 :root {
-  --background: #05070d;
+  --background: #04060c;
   --foreground: #f8fafc;
-  --cursor-x: 50vw;
-  --cursor-y: 50vh;
 }
 
 body {
@@ -28,143 +26,75 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.12);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.25);
 }
 
-/* Ultra-Realistic Glassmorphism Utilities */
+/* High-Performance Ultra-Realistic Glassmorphism */
 .ultra-glass {
-  background: radial-gradient(
-      circle 600px at var(--cursor-x, 50%) var(--cursor-y, 50%),
-      rgba(99, 102, 241, 0.08),
-      transparent 70%
-    ),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.01) 100%),
-    rgba(8, 12, 24, 0.58);
-  backdrop-filter: blur(28px) saturate(190%);
-  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  background: linear-gradient(145deg, rgba(17, 24, 39, 0.75) 0%, rgba(10, 15, 29, 0.85) 100%);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 
-    0 25px 50px -12px rgba(0, 0, 0, 0.7),
+    0 20px 40px -10px rgba(0, 0, 0, 0.7),
     inset 0 1px 1px 0 rgba(255, 255, 255, 0.15),
     inset 0 -1px 2px 0 rgba(0, 0, 0, 0.4);
-  position: relative;
 }
 
 .ultra-glass-card {
-  background: radial-gradient(
-      circle 350px at var(--cursor-x, 50%) var(--cursor-y, 50%),
-      rgba(168, 85, 247, 0.07),
-      transparent 70%
-    ),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.005) 100%),
-    rgba(11, 16, 30, 0.65);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(145deg, rgba(30, 41, 59, 0.35) 0%, rgba(15, 23, 42, 0.5) 100%);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.09);
   box-shadow: 
-    0 12px 30px -5px rgba(0, 0, 0, 0.5),
+    0 10px 25px -5px rgba(0, 0, 0, 0.45),
     inset 0 1px 1px 0 rgba(255, 255, 255, 0.12);
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: border-color 0.2s ease, transform 0.2s ease;
 }
 
 .ultra-glass-card:hover {
-  border-color: rgba(129, 140, 248, 0.35);
+  border-color: rgba(129, 140, 248, 0.3);
   box-shadow: 
-    0 20px 40px -10px rgba(99, 102, 241, 0.2),
-    inset 0 1px 1px 0 rgba(255, 255, 255, 0.25);
-  transform: translateY(-2px);
+    0 14px 30px -5px rgba(99, 102, 241, 0.15),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.2);
 }
 
 /* 3D Chamfered Hardware Buttons */
 .btn-3d-hardware {
-  background: linear-gradient(180deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.85) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.95) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow: 
-    0 4px 10px rgba(0, 0, 0, 0.4),
+    0 3px 8px rgba(0, 0, 0, 0.4),
     inset 0 1px 1px rgba(255, 255, 255, 0.2),
-    inset 0 -2px 4px rgba(0, 0, 0, 0.6);
-  transform-style: preserve-3d;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    inset 0 -2px 3px rgba(0, 0, 0, 0.6);
+  transition: all 0.15s ease;
 }
 
 .btn-3d-hardware:hover:not(:disabled) {
-  background: linear-gradient(180deg, rgba(51, 65, 85, 0.8) 0%, rgba(30, 41, 59, 0.95) 100%);
-  border-color: rgba(168, 85, 247, 0.4);
+  background: linear-gradient(180deg, rgba(51, 65, 85, 0.9) 0%, rgba(30, 41, 59, 1) 100%);
+  border-color: rgba(168, 85, 247, 0.5);
   box-shadow: 
-    0 6px 18px rgba(129, 140, 248, 0.25),
-    inset 0 1px 1px rgba(255, 255, 255, 0.3),
-    inset 0 -2px 4px rgba(0, 0, 0, 0.6);
-  transform: translateY(-2px);
+    0 5px 14px rgba(129, 140, 248, 0.25),
+    inset 0 1px 1px rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
 }
 
 .btn-3d-hardware:active:not(:disabled) {
   transform: translateY(1px);
   box-shadow: 
-    0 2px 4px rgba(0, 0, 0, 0.5),
+    0 1px 2px rgba(0, 0, 0, 0.5),
     inset 0 2px 4px rgba(0, 0, 0, 0.8);
 }
 
-/* 3D Titanium Frame on Phone */
+/* 3D Titanium Phone Bezel & Shadow */
 .chassis-titanium-3d {
-  transform-style: preserve-3d;
   box-shadow: 
-    0 40px 100px -20px rgba(0, 0, 0, 0.95),
-    0 0 60px -10px rgba(99, 102, 241, 0.25),
-    inset 0 1px 2px rgba(255, 255, 255, 0.4),
+    0 35px 80px -15px rgba(0, 0, 0, 0.95),
+    0 0 40px -10px rgba(99, 102, 241, 0.2),
+    inset 0 1px 2px rgba(255, 255, 255, 0.35),
     inset 0 -2px 4px rgba(0, 0, 0, 0.9);
-}
-
-/* Dynamic Glass Glare */
-.screen-glare {
-  background: linear-gradient(
-    115deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.08) 35%,
-    rgba(255, 255, 255, 0.16) 45%,
-    rgba(255, 255, 255, 0.02) 55%,
-    transparent 100%
-  );
-  pointer-events: none;
-  mix-blend-mode: overlay;
-}
-
-/* Animated Floating Orb */
-@keyframes floatSlow {
-  0%, 100% {
-    transform: translate(0, 0) scale(1);
-  }
-  33% {
-    transform: translate(40px, -60px) scale(1.08);
-  }
-  66% {
-    transform: translate(-30px, 40px) scale(0.94);
-  }
-}
-
-@keyframes floatReverse {
-  0%, 100% {
-    transform: translate(0, 0) scale(1);
-  }
-  33% {
-    transform: translate(-50px, 50px) scale(1.12);
-  }
-  66% {
-    transform: translate(40px, -40px) scale(0.9);
-  }
-}
-
-.animate-float-1 {
-  animation: floatSlow 18s ease-in-out infinite;
-}
-
-.animate-float-2 {
-  animation: floatReverse 22s ease-in-out infinite;
-}
-
-.animate-float-3 {
-  animation: floatSlow 15s ease-in-out infinite reverse;
 }

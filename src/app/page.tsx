@@ -9,7 +9,7 @@ import { LogsConsole } from '@/components/LogsConsole';
 import { CursorTrail } from '@/components/CursorTrail';
 import { useWebCodecs } from '@/hooks/useWebCodecs';
 import { DeviceInfo, StreamMeta, LogMessage } from '@/lib/types';
-import { Cast, Sparkles, ShieldCheck, Zap } from 'lucide-react';
+import { Cast, ShieldCheck } from 'lucide-react';
 
 export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -25,7 +25,7 @@ export default function Home() {
 
   const addLog = useCallback((message: string) => {
     setLogs((prev) => [
-      ...prev.slice(-150), // Keep last 150 log entries
+      ...prev.slice(-150),
       {
         id: Math.random().toString(36).substring(2, 9),
         message,
@@ -60,7 +60,6 @@ export default function Home() {
       if (event.data instanceof ArrayBuffer) {
         const view = new Uint8Array(event.data);
         if (view[0] === 0x01) {
-          // Video packet
           const flags = view[1];
           const isKeyFrame = (flags & 0x01) !== 0;
           const isConfig = (flags & 0x02) !== 0;
@@ -113,7 +112,7 @@ export default function Home() {
       }
     };
 
-    ws.onerror = (e) => {
+    ws.onerror = () => {
       addLog('[Error] WebSocket error encountered.');
     };
 
@@ -140,15 +139,15 @@ export default function Home() {
     return () => clearInterval(timer);
   }, [isStreaming]);
 
-  // Command Dispatches
-  const refreshDevices = () => {
+  // Memoized Command Dispatches
+  const refreshDevices = useCallback(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       setIsScanning(true);
       wsRef.current.send(JSON.stringify({ type: 'get-devices' }));
     }
-  };
+  }, []);
 
-  const startStream = () => {
+  const startStream = useCallback(() => {
     if (!selectedDeviceId || !wsRef.current) return;
     resetDecoder();
     setIsStreaming(true);
@@ -158,17 +157,17 @@ export default function Home() {
         deviceId: selectedDeviceId,
       })
     );
-  };
+  }, [selectedDeviceId, resetDecoder]);
 
-  const stopStream = () => {
+  const stopStream = useCallback(() => {
     if (!wsRef.current) return;
     wsRef.current.send(JSON.stringify({ type: 'stop-stream' }));
     setIsStreaming(false);
     setFps(0);
-  };
+  }, []);
 
-  const sendKey = (code: number) => {
-    if (!wsRef.current || !selectedDeviceId) return;
+  const sendKey = useCallback((code: number) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !selectedDeviceId) return;
     wsRef.current.send(
       JSON.stringify({
         type: 'key',
@@ -176,10 +175,10 @@ export default function Home() {
         code,
       })
     );
-  };
+  }, [selectedDeviceId]);
 
-  const sendText = (text: string) => {
-    if (!wsRef.current || !selectedDeviceId) return;
+  const sendText = useCallback((text: string) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !selectedDeviceId) return;
     wsRef.current.send(
       JSON.stringify({
         type: 'text',
@@ -187,10 +186,10 @@ export default function Home() {
         text,
       })
     );
-  };
+  }, [selectedDeviceId]);
 
-  const handleTap = (x: number, y: number) => {
-    if (!wsRef.current || !selectedDeviceId) return;
+  const handleTap = useCallback((x: number, y: number) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !selectedDeviceId) return;
     wsRef.current.send(
       JSON.stringify({
         type: 'tap',
@@ -199,10 +198,10 @@ export default function Home() {
         y,
       })
     );
-  };
+  }, [selectedDeviceId]);
 
-  const handleSwipe = (x1: number, y1: number, x2: number, y2: number, duration: number) => {
-    if (!wsRef.current || !selectedDeviceId) return;
+  const handleSwipe = useCallback((x1: number, y1: number, x2: number, y2: number, duration: number) => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !selectedDeviceId) return;
     wsRef.current.send(
       JSON.stringify({
         type: 'swipe',
@@ -214,25 +213,24 @@ export default function Home() {
         duration,
       })
     );
-  };
+  }, [selectedDeviceId]);
 
   return (
     <main className="relative flex h-screen w-screen bg-[#04060c] overflow-hidden text-slate-100 font-sans select-none">
-      {/* Interactive Glowing Cursor Trail & Spotlight Canvas */}
+      {/* Lightweight, GPU-friendly Cursor Trail */}
       <CursorTrail />
 
-      {/* 3D Ambient Glowing Mesh Background Orbs */}
-      <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
-        {/* Orb 1: Violet/Indigo Top-Center */}
-        <div className="absolute -top-32 left-1/3 w-[550px] h-[550px] rounded-full bg-gradient-to-br from-indigo-600/20 via-purple-600/15 to-transparent blur-[120px] animate-float-1" />
-        {/* Orb 2: Cyan/Emerald Bottom-Right */}
-        <div className="absolute -bottom-40 right-10 w-[600px] h-[600px] rounded-full bg-gradient-to-tr from-cyan-600/15 via-indigo-600/10 to-transparent blur-[140px] animate-float-2" />
-        {/* Orb 3: Deep Magenta Bottom-Left */}
-        <div className="absolute -bottom-20 -left-20 w-[450px] h-[450px] rounded-full bg-gradient-to-tr from-fuchsia-600/15 to-transparent blur-[100px] animate-float-3" />
-
-        {/* Subtle Spatial Cyber Grid Lines */}
+      {/* Static 3D Ambient Mesh Glow (Zero CPU/Compositor Load) */}
+      <div
+        className="absolute inset-0 pointer-events-none z-0"
+        style={{
+          background:
+            'radial-gradient(circle 800px at 25% 15%, rgba(99, 102, 241, 0.12) 0%, transparent 70%), radial-gradient(circle 700px at 80% 85%, rgba(168, 85, 247, 0.08) 0%, transparent 70%)',
+        }}
+      >
+        {/* Subtle Spatial Cyber Grid */}
         <div
-          className="absolute inset-0 opacity-[0.035]"
+          className="absolute inset-0 opacity-[0.03]"
           style={{
             backgroundImage:
               'linear-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.1) 1px, transparent 1px)',
@@ -243,9 +241,9 @@ export default function Home() {
 
       {/* Left Frosted Glass Sidebar */}
       <aside className="w-[360px] flex-shrink-0 ultra-glass p-5 flex flex-col gap-4 overflow-y-auto z-10 border-r border-white/10">
-        {/* Futuristic Brand Header */}
+        {/* Brand Header */}
         <div className="flex items-center gap-3.5 pb-3 border-b border-white/10">
-          <div className="relative w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-[0_0_25px_rgba(99,102,241,0.4)]">
+          <div className="relative w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-[0_0_20px_rgba(99,102,241,0.35)]">
             <Cast className="w-5 h-5 text-white drop-shadow-md" />
             <div className="absolute inset-0 rounded-2xl bg-white/20 blur-[2px] pointer-events-none" />
           </div>
@@ -255,11 +253,11 @@ export default function Home() {
                 Aether Mirror
               </span>
               <span className="px-1.5 py-0.5 text-[9px] font-mono font-bold bg-indigo-500/20 text-indigo-300 rounded border border-indigo-500/30">
-                3D PRO
+                60 FPS
               </span>
             </h1>
             <p className="text-[11px] text-slate-400 font-medium">
-              Ultra-Realistic Glassmorphic Engine
+              Ultra Glass • Pure WebCodecs
             </p>
           </div>
         </div>

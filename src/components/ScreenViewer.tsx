@@ -28,62 +28,15 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
   const lastCoordsRef = useRef<{ x: number; y: number } | null>(null);
   const [isFocused, setIsFocused] = useState(false);
 
-  // 3D Parallax Tilt state
-  const [tilt, setTilt] = useState({ rx: 0, ry: 0, gx: 50, gy: 50 });
+  const onSwipeRef = useRef(onSwipe);
+  onSwipeRef.current = onSwipe;
+
+  const metaRef = useRef(meta);
+  metaRef.current = meta;
 
   const lastWheelTimeRef = useRef<number>(0);
   const wheelAccumulatorRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
   const wheelResetTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Smooth 3D tilt responding to mouse position
-  useEffect(() => {
-    let targetRx = 0;
-    let targetRy = 0;
-    let targetGx = 50;
-    let targetGy = 50;
-    let currentRx = 0;
-    let currentRy = 0;
-    let currentGx = 50;
-    let currentGy = 50;
-    let animId: number;
-
-    const handleWindowMouseMove = (e: MouseEvent) => {
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-      const nx = (e.clientX - w / 2) / (w / 2); // -1 to +1
-      const ny = (e.clientY - h / 2) / (h / 2); // -1 to +1
-
-      // Subtle, elegant 3D tilt (max 8.5 degrees)
-      targetRy = nx * 7.5;
-      targetRx = -ny * 7.5;
-      targetGx = 50 + nx * 35;
-      targetGy = 50 + ny * 35;
-    };
-
-    const loop = () => {
-      currentRx += (targetRx - currentRx) * 0.08;
-      currentRy += (targetRy - currentRy) * 0.08;
-      currentGx += (targetGx - currentGx) * 0.08;
-      currentGy += (targetGy - currentGy) * 0.08;
-
-      setTilt({
-        rx: Math.round(currentRx * 100) / 100,
-        ry: Math.round(currentRy * 100) / 100,
-        gx: Math.round(currentGx * 10) / 10,
-        gy: Math.round(currentGy * 10) / 10,
-      });
-
-      animId = requestAnimationFrame(loop);
-    };
-
-    window.addEventListener('mousemove', handleWindowMouseMove, { passive: true });
-    animId = requestAnimationFrame(loop);
-
-    return () => {
-      window.removeEventListener('mousemove', handleWindowMouseMove);
-      cancelAnimationFrame(animId);
-    };
-  }, []);
 
   // Exact 1:1 mapping from canvas click coordinates to physical device screen resolution
   const mapCoordinates = (clientX: number, clientY: number) => {
@@ -96,9 +49,9 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
     const relX = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     const relY = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
 
-    // Target the phone's physical hardware screen resolution (e.g. 1080x2373)
-    const targetWidth = meta?.physicalWidth || 1080;
-    const targetHeight = meta?.physicalHeight || 2373;
+    const currentMeta = metaRef.current;
+    const targetWidth = currentMeta?.physicalWidth || currentMeta?.width || 1080;
+    const targetHeight = currentMeta?.physicalHeight || currentMeta?.height || 2373;
 
     return {
       x: Math.round(relX * targetWidth),
@@ -112,11 +65,9 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
     if (!canvas || !isStreaming) return;
 
     const handleWheelNative = (e: WheelEvent) => {
-      // Prevent browser page from scrolling while swiping on the phone
       e.preventDefault();
 
       const now = Date.now();
-      // Enforce 160ms cooldown between swipes to allow Android fling animation to run cleanly
       if (now - lastWheelTimeRef.current < 160) return;
 
       wheelAccumulatorRef.current.dx += e.deltaX;
@@ -131,15 +82,15 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
       const absX = Math.abs(dx);
       const absY = Math.abs(dy);
 
-      // Minimum threshold before triggering swipe
       if (absX < 20 && absY < 20) return;
 
       lastWheelTimeRef.current = now;
       wheelAccumulatorRef.current = { dx: 0, dy: 0 };
 
       const coords = mapCoordinates(e.clientX, e.clientY);
-      const targetW = meta?.physicalWidth || 1080;
-      const targetH = meta?.physicalHeight || 2373;
+      const currentMeta = metaRef.current;
+      const targetW = currentMeta?.physicalWidth || currentMeta?.width || 1080;
+      const targetH = currentMeta?.physicalHeight || currentMeta?.height || 2373;
       const cx = Math.max(150, Math.min(targetW - 150, coords.x || targetW / 2));
       const cy = Math.max(350, Math.min(targetH - 350, coords.y || targetH / 2));
 
@@ -147,29 +98,29 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
         // Vertical swipe (Up / Down)
         const swipeDist = Math.round(targetH * 0.28);
         if (dy > 0) {
-          // Swiped UP on mousepad -> Scroll DOWN on phone
+          // Swiped UP on trackpad -> Scroll DOWN on phone
           const startY = Math.min(targetH - 180, cy + Math.round(swipeDist / 2));
           const endY = Math.max(180, cy - Math.round(swipeDist / 2));
-          onSwipe(cx, startY, cx, endY, 150);
+          onSwipeRef.current(cx, startY, cx, endY, 150);
         } else {
-          // Swiped DOWN on mousepad -> Scroll UP on phone
+          // Swiped DOWN on trackpad -> Scroll UP on phone
           const startY = Math.max(180, cy - Math.round(swipeDist / 2));
           const endY = Math.min(targetH - 180, cy + Math.round(swipeDist / 2));
-          onSwipe(cx, startY, cx, endY, 150);
+          onSwipeRef.current(cx, startY, cx, endY, 150);
         }
       } else {
         // Horizontal swipe (Left / Right)
         const swipeDistX = Math.round(targetW * 0.50);
         if (dx > 0) {
-          // Swiped LEFT on mousepad -> Scroll RIGHT on phone
+          // Swiped LEFT on trackpad -> Scroll RIGHT on phone
           const startX = Math.min(targetW - 80, cx + Math.round(swipeDistX / 2));
           const endX = Math.max(80, cx - Math.round(swipeDistX / 2));
-          onSwipe(startX, cy, endX, cy, 150);
+          onSwipeRef.current(startX, cy, endX, cy, 150);
         } else {
-          // Swiped RIGHT on mousepad -> Scroll LEFT on phone
+          // Swiped RIGHT on trackpad -> Scroll LEFT on phone
           const startX = Math.max(80, cx - Math.round(swipeDistX / 2));
           const endX = Math.min(targetW - 80, cx + Math.round(swipeDistX / 2));
-          onSwipe(startX, cy, endX, cy, 150);
+          onSwipeRef.current(startX, cy, endX, cy, 150);
         }
       }
     };
@@ -178,7 +129,7 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
     return () => {
       canvas.removeEventListener('wheel', handleWheelNative);
     };
-  }, [isStreaming, meta, onSwipe]);
+  }, [isStreaming]);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isStreaming) return;
@@ -268,36 +219,23 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
       className={`relative flex items-center justify-center p-4 outline-none transition-all duration-300 ${
         isFocused ? 'ring-2 ring-indigo-500/40 rounded-[3.5rem]' : ''
       }`}
-      style={{
-        perspective: '1400px',
-        transformStyle: 'preserve-3d',
-      }}
     >
       {/* 3D Floating Ground Reflection / Ambient Glow */}
       <div
-        className="absolute -bottom-8 left-1/2 -translate-x-1/2 w-[70%] h-14 rounded-full pointer-events-none transition-transform duration-75 ease-out"
+        className="absolute -bottom-8 left-1/2 -translate-x-1/2 w-[70%] h-14 rounded-full pointer-events-none"
         style={{
-          background: 'radial-gradient(ellipse, rgba(99, 102, 241, 0.28) 0%, rgba(168, 85, 247, 0.12) 40%, transparent 70%)',
-          transform: `translateX(-50%) translateZ(-90px) rotateX(70deg) rotateZ(${-tilt.ry * 0.7}deg) scale(${
-            1 + Math.abs(tilt.ry) * 0.01
-          })`,
+          background: 'radial-gradient(ellipse, rgba(99, 102, 241, 0.25) 0%, rgba(168, 85, 247, 0.1) 40%, transparent 70%)',
           filter: 'blur(16px)',
         }}
       />
 
       {/* 3D Smartphone Chassis Mockup with Titanium Chamfered Bezel */}
-      <div
-        className="relative rounded-[3.4rem] p-3.5 bg-gradient-to-b from-slate-700 via-slate-800 to-slate-950 border-[5px] border-slate-600/70 shadow-[0_35px_90px_-15px_rgba(0,0,0,0.95),0_0_50px_rgba(99,102,241,0.18)] flex flex-col items-center justify-center transition-transform duration-75 ease-out chassis-titanium-3d"
-        style={{
-          transform: `rotateX(${tilt.rx}deg) rotateY(${tilt.ry}deg)`,
-          transformStyle: 'preserve-3d',
-        }}
-      >
+      <div className="relative rounded-[3.4rem] p-3.5 bg-gradient-to-b from-slate-700 via-slate-800 to-slate-950 border-[5px] border-slate-600/70 shadow-[0_35px_90px_-15px_rgba(0,0,0,0.95),0_0_50px_rgba(99,102,241,0.18)] flex flex-col items-center justify-center chassis-titanium-3d">
         {/* Antenna Lines on Frame */}
         <div className="absolute -left-1.5 top-20 w-1.5 h-3 bg-slate-500/80 rounded-l" />
         <div className="absolute -left-1.5 bottom-20 w-1.5 h-3 bg-slate-500/80 rounded-l" />
-        <div className="absolute -right-1.5 top-20 w-1.5 h-3 bg-slate-500/80 rounded-l" />
-        <div className="absolute -right-1.5 bottom-20 w-1.5 h-3 bg-slate-500/80 rounded-l" />
+        <div className="absolute -right-1.5 top-20 w-1.5 h-3 bg-slate-500/80 rounded-r" />
+        <div className="absolute -right-1.5 bottom-20 w-1.5 h-3 bg-slate-500/80 rounded-r" />
 
         {/* Physical 3D Protruding Volume Buttons */}
         <div className="absolute -left-[10px] top-28 w-2 h-11 bg-gradient-to-b from-slate-500 via-slate-600 to-slate-700 rounded-l-md shadow-lg" />
@@ -330,14 +268,13 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
             height: 'min(76vh, 740px)',
             aspectRatio: meta ? `${meta.physicalWidth || meta.width} / ${meta.physicalHeight || meta.height}` : '9 / 19.5',
             maxWidth: '100%',
-            transformStyle: 'preserve-3d',
           }}
         >
-          {/* Dynamic Specular Glass Glare that shifts with mouse 3D tilt */}
+          {/* Static Specular Glass Glare (pointer-events-none, 0% CPU cost) */}
           <div
-            className="absolute inset-0 pointer-events-none z-20 transition-opacity duration-200"
+            className="absolute inset-0 pointer-events-none z-20"
             style={{
-              background: `radial-gradient(circle 500px at ${tilt.gx}% ${tilt.gy}%, rgba(255, 255, 255, 0.08), transparent 70%), linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0%, transparent 40%)`,
+              background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.01) 30%, transparent 60%)',
               mixBlendMode: 'screen',
             }}
           />

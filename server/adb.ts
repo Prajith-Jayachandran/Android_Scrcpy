@@ -234,25 +234,48 @@ export class AdbManager {
     return proc;
   }
 
-  // Safe standard Android input injection using persistent interactive shell
+  // Bulletproof input injection using direct atomic ADB commands
   public injectKey(deviceId: string, keyCode: number): void {
-    const shell = this.getOrCreateShell(deviceId);
-    shell.stdin?.write(`input keyevent ${keyCode}\n`);
+    execFile(this.adbPath, ['-s', deviceId, 'shell', 'input', 'keyevent', keyCode.toString()], (err) => {
+      if (err) console.error(`[ADB Key Error]:`, err.message);
+    });
   }
 
   public injectText(deviceId: string, text: string): void {
-    const shell = this.getOrCreateShell(deviceId);
     const escaped = text.replace(/ /g, '%s').replace(/[^a-zA-Z0-9%s._-]/g, '');
-    shell.stdin?.write(`input text ${escaped}\n`);
+    execFile(this.adbPath, ['-s', deviceId, 'shell', 'input', 'text', escaped], (err) => {
+      if (err) console.error(`[ADB Text Error]:`, err.message);
+    });
   }
 
   public injectTap(deviceId: string, x: number, y: number): void {
-    const shell = this.getOrCreateShell(deviceId);
-    shell.stdin?.write(`input tap ${Math.round(x)} ${Math.round(y)}\n`);
+    execFile(
+      this.adbPath,
+      ['-s', deviceId, 'shell', 'input', 'tap', Math.round(x).toString(), Math.round(y).toString()],
+      (err) => {
+        if (err) console.error(`[ADB Tap Error]:`, err.message);
+      }
+    );
   }
 
   public injectSwipe(deviceId: string, x1: number, y1: number, x2: number, y2: number, durationMs = 150): void {
-    const shell = this.getOrCreateShell(deviceId);
-    shell.stdin?.write(`input swipe ${Math.round(x1)} ${Math.round(y1)} ${Math.round(x2)} ${Math.round(y2)} ${Math.round(durationMs)}\n`);
+    execFile(
+      this.adbPath,
+      [
+        '-s',
+        deviceId,
+        'shell',
+        'input',
+        'swipe',
+        Math.round(x1).toString(),
+        Math.round(y1).toString(),
+        Math.round(x2).toString(),
+        Math.round(y2).toString(),
+        Math.round(durationMs).toString()
+      ],
+      (err) => {
+        if (err) console.error(`[ADB Swipe Error]:`, err.message);
+      }
+    );
   }
 }
