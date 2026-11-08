@@ -278,4 +278,280 @@ export class AdbManager {
       }
     );
   }
+
+  // --------------------------------------------------------------------------
+  // Feature #10: Quick-Draw Privacy Mode (Remote Screen Blackout)
+  // --------------------------------------------------------------------------
+  private savedBrightness: Map<string, { brightness: string; mode: string }> = new Map();
+
+  public async setPrivacyMode(deviceId: string, enabled: boolean): Promise<boolean> {
+    return new Promise((resolve) => {
+      if (enabled) {
+        // Save current brightness and mode before zeroing out
+        execFile(
+          this.adbPath,
+          ['-s', deviceId, 'shell', 'settings get system screen_brightness; settings get system screen_brightness_mode'],
+          (err, stdout) => {
+            if (!err && stdout) {
+              const lines = stdout.trim().split(/\r?\n/);
+              this.savedBrightness.set(deviceId, {
+                brightness: lines[0] || '1024',
+                mode: lines[1] || '0'
+              });
+            } else {
+              this.savedBrightness.set(deviceId, { brightness: '1024', mode: '0' });
+            }
+
+            // Dim screen completely to 0 (pitch black on OLEDs)
+            execFile(
+              this.adbPath,
+              ['-s', deviceId, 'shell', 'settings put system screen_brightness_mode 0; settings put system screen_brightness 0'],
+              (err2) => {
+                resolve(!err2);
+              }
+            );
+          }
+        );
+      } else {
+        // Restore previous brightness
+        const saved = this.savedBrightness.get(deviceId) || { brightness: '1024', mode: '0' };
+        execFile(
+          this.adbPath,
+          [
+            '-s',
+            deviceId,
+            'shell',
+            `settings put system screen_brightness_mode ${saved.mode}; settings put system screen_brightness ${saved.brightness}; input keyevent 224`
+          ],
+          (err) => {
+            resolve(!err);
+          }
+        );
+      }
+    });
+  }
+
+  // --------------------------------------------------------------------------
+  // Feature #7: Dual-Mode Wired & Wireless Link (Wi-Fi 5GHz & TCP/IP)
+  // --------------------------------------------------------------------------
+  public async getDeviceIp(deviceId: string): Promise<string | null> {
+    return new Promise((resolve) => {
+      execFile(this.adbPath, ['-s', deviceId, 'shell', 'ip -f inet addr'], (err, stdout) => {
+        if (err || !stdout) return resolve(null);
+
+        // Search for non-loopback inet addresses (e.g. wlan0, ap0, eth0)
+        const lines = stdout.split(/\r?\n/);
+        let foundIp: string | null = null;
+
+        for (const line of lines) {
+          if (line.includes('127.0.0.1')) continue;
+          const match = line.match(/inet\s+(\d+\.\d+\.\d+\.\d+)\/\d+/);
+          if (match) {
+            const ip = match[1];
+            // Prioritize standard local subnet IPs (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+            if (ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.')) {
+              foundIp = ip;
+              if (line.includes('wlan') || line.includes('ap')) break;
+            }
+          }
+        }
+        resolve(foundIp);
+      });
+    });
+  }
+
+  public async switchToTcpip(deviceId: string, port = 5555): Promise<boolean> {
+    return new Promise((resolve) => {
+      execFile(this.adbPath, ['-s', deviceId, 'tcpip', port.toString()], (err) => {
+        resolve(!err);
+      });
+    });
+  }
+
+  public async connectWireless(ip: string, port = 5555): Promise<{ success: boolean; message: string }> {
+    const target = `${ip}:${port}`;
+    return new Promise((resolve) => {
+      execFile(this.adbPath, ['connect', target], (err, stdout, stderr) => {
+        const out = (stdout || stderr || '').trim();
+        if (out.includes('connected to') || out.includes('already connected')) {
+          resolve({ success: true, message: out });
+        } else {
+          resolve({ success: false, message: out || (err ? err.message : 'Failed to connect') });
+        }
+      });
+    });
+  }
+
+  public async pairWireless(ip: string, port: number, code: string): Promise<{ success: boolean; message: string }> {
+    const target = `${ip}:${port}`;
+    return new Promise((resolve) => {
+      execFile(this.adbPath, ['pair', target, code], (err, stdout, stderr) => {
+        const out = (stdout || stderr || '').trim();
+        if (out.toLowerCase().includes('successfully paired')) {
+          resolve({ success: true, message: out });
+        } else {
+          resolve({ success: false, message: out || (err ? err.message : 'Pairing failed') });
+        }
+      });
+    });
+  }
+
+  public async disconnectWireless(target: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      execFile(this.adbPath, ['disconnect', target], (err) => {
+        resolve(!err);
+      });
+    });
+  }
+
+  // --------------------------------------------------------------------------
+  // Feature #3: Context-Aware Game Detection
+  // --------------------------------------------------------------------------
+  public async getForegroundPackage(deviceId: string): Promise<string | null> {
+    return new Promise((resolve) => {
+      execFile(
+        this.adbPath,
+        ['-s', deviceId, 'shell', "dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'"],
+        (err, stdout) => {
+          if (err || !stdout) return resolve(null);
+
+          // Example: mFocusedApp=ActivityRecord{... com.pubg.imobile/com.epicgames.ue4.SplashActivity ...}
+          const match = stdout.match(/([a-zA-Z0-9._]+)\/([a-zA-Z0-9._]+)/);
+          if (match && match[1]) {
+            return resolve(match[1]);
+          }
+          resolve(null);
+        }
+      );
+    });
+  }
+
+  public async isPackageGame(deviceId: string, packageName: string): Promise<boolean> {
+    // Known game package keywords / common titles
+    const gameKeywords = [
+      'game', 'pubg', 'genshin', 'freefire', 'cod', 'roblox', 'minecraft',
+      'subway', 'asphalt', 'clash', 'supercell', 'riot', 'league', 'bgmi',
+      'candycrush', 'unity', 'epicgames', 'fortnite', 'ea.gp', 'netease'
+    ];
+    const lowerPkg = packageName.toLowerCase();
+    if (gameKeywords.some(k => lowerPkg.includes(k))) {
+      return true;
+    }
+
+    return new Promise((resolve) => {
+      execFile(
+        this.adbPath,
+        ['-s', deviceId, 'shell', `dumpsys package ${packageName} | grep -E 'appCategory|category'`],
+        (err, stdout) => {
+          if (!err && stdout) {
+            if (stdout.includes('appCategory=0') || stdout.toLowerCase().includes('appcategory=game')) {
+              return resolve(true);
+            }
+          }
+          resolve(false);
+        }
+      );
+    });
+  }
+
+  // --------------------------------------------------------------------------
+  // Feature #2: Drag & Drop APK Sideloading & Media Push
+  // --------------------------------------------------------------------------
+  public async installApk(deviceId: string, apkFilePath: string): Promise<{ success: boolean; message: string; packageName?: string }> {
+    return new Promise((resolve) => {
+      // 1. Install APK with -r (reinstall) and -g (grant all permissions)
+      execFile(
+        this.adbPath,
+        ['-s', deviceId, 'install', '-r', '-g', apkFilePath],
+        async (err, stdout, stderr) => {
+          const out = (stdout || stderr || '').trim();
+          if (err || !out.includes('Success')) {
+            return resolve({
+              success: false,
+              message: out || (err ? err.message : 'Installation failed')
+            });
+          }
+
+          // 2. Attempt to resolve launcher package and auto-launch
+          execFile(
+            this.adbPath,
+            ['-s', deviceId, 'shell', 'cmd package resolve-activity --brief', apkFilePath],
+            (errResolve, outResolve) => {
+              let pkg = '';
+              if (!errResolve && outResolve) {
+                const lines = outResolve.trim().split(/\r?\n/);
+                const lastLine = lines[lines.length - 1];
+                const match = lastLine.match(/([a-zA-Z0-9._]+)\//);
+                if (match) pkg = match[1];
+              }
+
+              if (pkg) {
+                // Auto launch app
+                execFile(this.adbPath, ['-s', deviceId, 'shell', 'monkey', '-p', pkg, '-c', 'android.intent.category.LAUNCHER', '1']);
+              }
+
+              resolve({
+                success: true,
+                message: 'Successfully installed and auto-launched!',
+                packageName: pkg
+              });
+            }
+          );
+        }
+      );
+    });
+  }
+
+  public async pushMedia(deviceId: string, localFilePath: string, remoteFileName: string): Promise<{ success: boolean; message: string }> {
+    const remotePath = `/sdcard/Download/${remoteFileName}`;
+    return new Promise((resolve) => {
+      execFile(
+        this.adbPath,
+        ['-s', deviceId, 'push', localFilePath, remotePath],
+        (err, stdout, stderr) => {
+          if (err) {
+            return resolve({
+              success: false,
+              message: stderr || err.message
+            });
+          }
+
+          // Trigger Android Media Scanner so it appears immediately in Photos / Downloads
+          execFile(
+            this.adbPath,
+            [
+              '-s',
+              deviceId,
+              'shell',
+              'am',
+              'broadcast',
+              '-a',
+              'android.intent.action.MEDIA_SCANNER_SCAN_FILE',
+              '-d',
+              `file://${remotePath}`
+            ],
+            () => {
+              resolve({
+                success: true,
+                message: `Pushed to ${remotePath} and scanned into Android Media Gallery.`
+              });
+            }
+          );
+        }
+      );
+    });
+  }
+
+  // --------------------------------------------------------------------------
+  // Feature #6: Smart Clipboard Sync (PC to Phone)
+  // --------------------------------------------------------------------------
+  public async pasteClipboard(deviceId: string, text: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      // Escape text safely for Android input
+      const escaped = text.replace(/ /g, '%s').replace(/[^a-zA-Z0-9%s._@!#$^&*()-+=~]/g, '');
+      execFile(this.adbPath, ['-s', deviceId, 'shell', 'input', 'text', escaped], (err) => {
+        resolve(!err);
+      });
+    });
+  }
 }

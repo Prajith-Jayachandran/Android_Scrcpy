@@ -1,32 +1,48 @@
 'use client';
 
 import React, { useRef, useState, useEffect } from 'react';
-import { Smartphone, Sparkles } from 'lucide-react';
+import { Smartphone, Sparkles, UploadCloud, FileCheck, AlertCircle, PackageCheck, Loader2 } from 'lucide-react';
 import { StreamMeta } from '../lib/types';
+import { GamepadOverlay } from './GamepadOverlay';
 
 interface ScreenViewerProps {
   canvasRef: React.RefObject<HTMLCanvasElement>;
   isStreaming: boolean;
   meta: StreamMeta | null;
+  activeDeviceId: string;
+  isGameActive?: boolean;
+  activePackage?: string;
   onTap: (x: number, y: number) => void;
   onSwipe: (x1: number, y1: number, x2: number, y2: number, duration: number) => void;
   onSendKey: (keyCode: number) => void;
   onSendText: (text: string) => void;
+  onCloseGamepad?: () => void;
+  onNotifyLog?: (msg: string) => void;
 }
 
 export const ScreenViewer: React.FC<ScreenViewerProps> = ({
   canvasRef,
   isStreaming,
   meta,
+  activeDeviceId,
+  isGameActive = false,
+  activePackage,
   onTap,
   onSwipe,
   onSendKey,
   onSendText,
+  onCloseGamepad,
+  onNotifyLog,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const dragStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
   const lastCoordsRef = useRef<{ x: number; y: number } | null>(null);
   const [isFocused, setIsFocused] = useState(false);
+
+  // Feature #2: Drag & Drop File Sideloading State
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   const onSwipeRef = useRef(onSwipe);
   onSwipeRef.current = onSwipe;
@@ -209,6 +225,67 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
     }
   };
 
+  // --------------------------------------------------------------------------
+  // Feature #2: Drag & Drop APK Sideloading & Media Push Handler
+  // --------------------------------------------------------------------------
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!isDragOver) setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+
+    const files = e.dataTransfer.files;
+    if (!files || files.length === 0 || !activeDeviceId) return;
+
+    const file = files[0];
+    const isApk = file.name.toLowerCase().endsWith('.apk');
+
+    setIsUploading(true);
+    setUploadStatus(isApk ? `Sideloading ${file.name}...` : `Pushing ${file.name}...`);
+    onNotifyLog?.(`Uploading ${file.name} to device ${activeDeviceId}...`);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('deviceId', activeDeviceId);
+
+      const resp = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const res = await resp.json();
+      if (res.success) {
+        setUploadStatus(
+          isApk
+            ? `✔ Installed & Launched ${file.name}!`
+            : `✔ Pushed ${file.name} to /sdcard/Download/`
+        );
+        onNotifyLog?.(res.message);
+      } else {
+        setUploadStatus(`✖ Failed: ${res.message}`);
+        onNotifyLog?.(`[Error] ${res.message}`);
+      }
+    } catch (err: any) {
+      setUploadStatus(`✖ Error: ${err.message}`);
+      onNotifyLog?.(`[Upload Error]: ${err.message}`);
+    } finally {
+      setIsUploading(false);
+      setTimeout(() => setUploadStatus(null), 4000);
+    }
+  };
+
   return (
     <div
       ref={containerRef}
@@ -216,6 +293,9 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
       onFocus={() => setIsFocused(true)}
       onBlur={() => setIsFocused(false)}
       onKeyDown={handleKeyDown}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
       className={`relative flex items-center justify-center p-4 outline-none transition-all duration-300 ${
         isFocused ? 'ring-2 ring-indigo-500/40 rounded-[3.5rem]' : ''
       }`}
@@ -224,7 +304,8 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
       <div
         className="absolute -bottom-8 left-1/2 -translate-x-1/2 w-[70%] h-14 rounded-full pointer-events-none"
         style={{
-          background: 'radial-gradient(ellipse, rgba(99, 102, 241, 0.25) 0%, rgba(168, 85, 247, 0.1) 40%, transparent 70%)',
+          background:
+            'radial-gradient(ellipse, rgba(99, 102, 241, 0.25) 0%, rgba(168, 85, 247, 0.1) 40%, transparent 70%)',
           filter: 'blur(16px)',
         }}
       />
@@ -266,7 +347,9 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
           className="relative rounded-[2.6rem] bg-black overflow-hidden flex items-center justify-center shadow-inner border border-slate-800/80 transition-all"
           style={{
             height: 'min(76vh, 740px)',
-            aspectRatio: meta ? `${meta.physicalWidth || meta.width} / ${meta.physicalHeight || meta.height}` : '9 / 19.5',
+            aspectRatio: meta
+              ? `${meta.physicalWidth || meta.width} / ${meta.physicalHeight || meta.height}`
+              : '9 / 19.5',
             maxWidth: '100%',
           }}
         >
@@ -274,7 +357,8 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
           <div
             className="absolute inset-0 pointer-events-none z-20"
             style={{
-              background: 'linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.01) 30%, transparent 60%)',
+              background:
+                'linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.01) 30%, transparent 60%)',
               mixBlendMode: 'screen',
             }}
           />
@@ -291,6 +375,47 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
               isStreaming ? 'opacity-100' : 'opacity-0 absolute pointer-events-none'
             }`}
           />
+
+          {/* Feature #3: Context-Aware Gamepad Overlay (Renders ONLY when game is active) */}
+          <GamepadOverlay
+            isVisible={isGameActive}
+            activePackage={activePackage}
+            onSendKey={onSendKey}
+            onTap={onTap}
+            onSwipe={onSwipe}
+            onClose={() => onCloseGamepad?.()}
+          />
+
+          {/* Feature #2: Drag & Drop Sideloading Target Overlay */}
+          {isDragOver && (
+            <div className="absolute inset-0 z-40 bg-indigo-950/85 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center border-4 border-dashed border-indigo-400 rounded-[2.6rem] animate-in fade-in duration-150">
+              <div className="w-16 h-16 rounded-2xl bg-indigo-500/30 border border-indigo-400/50 flex items-center justify-center text-indigo-300 mb-3 shadow-[0_0_30px_rgba(99,102,241,0.5)] animate-bounce">
+                <UploadCloud className="w-9 h-9" />
+              </div>
+              <h3 className="text-base font-extrabold text-white tracking-wide">
+                Drop to Transfer
+              </h3>
+              <p className="text-xs text-indigo-200 mt-1 max-w-[220px]">
+                • <strong className="text-white">.apk</strong>: Auto-install &amp; launch
+                <br />
+                • <strong className="text-white">Media/Files</strong>: Push to /sdcard/Download/
+              </p>
+            </div>
+          )}
+
+          {/* Sideload / Uploading Progress Toast */}
+          {(isUploading || uploadStatus) && (
+            <div className="absolute bottom-6 left-4 right-4 z-40 px-3.5 py-2.5 rounded-2xl bg-slate-900/90 border border-white/20 text-xs text-white backdrop-blur-md shadow-2xl flex items-center gap-2.5 animate-in slide-in-from-bottom duration-200">
+              {isUploading ? (
+                <Loader2 className="w-4 h-4 text-indigo-400 animate-spin" />
+              ) : uploadStatus?.includes('✔') ? (
+                <FileCheck className="w-4 h-4 text-emerald-400" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-red-400" />
+              )}
+              <span className="font-semibold truncate">{uploadStatus}</span>
+            </div>
+          )}
 
           {/* Disconnected / Ready State Placeholder */}
           {!isStreaming && (

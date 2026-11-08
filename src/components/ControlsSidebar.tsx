@@ -1,26 +1,64 @@
 'use client';
 
 import React, { useState } from 'react';
-import { ArrowLeft, Circle, Square, Volume2, Volume1, Send, Camera, Sun, Sparkles } from 'lucide-react';
+import {
+  ArrowLeft,
+  Circle,
+  Square,
+  Volume2,
+  Volume1,
+  Send,
+  Camera,
+  Sun,
+  Sparkles,
+  Clipboard,
+  Gamepad2,
+  Eye,
+  EyeOff
+} from 'lucide-react';
 
 interface ControlsSidebarProps {
   isStreaming: boolean;
+  isGameActive?: boolean;
+  privacyMode?: boolean;
   onSendKey: (keyCode: number) => void;
   onSendText: (text: string) => void;
+  onClipboardPaste?: (text: string) => void;
+  onToggleGamepad?: () => void;
+  onTogglePrivacy?: () => void;
 }
 
 export const ControlsSidebar: React.FC<ControlsSidebarProps> = ({
   isStreaming,
+  isGameActive = false,
+  privacyMode = false,
   onSendKey,
   onSendText,
+  onClipboardPaste,
+  onToggleGamepad,
+  onTogglePrivacy,
 }) => {
   const [inputText, setInputText] = useState('');
+  const [clipboardToast, setClipboardToast] = useState(false);
 
   const handleSendText = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!inputText.trim()) return;
     onSendText(inputText);
     setInputText('');
+  };
+
+  const handlePasteClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text && onClipboardPaste) {
+        onClipboardPaste(text);
+        setClipboardToast(true);
+        setTimeout(() => setClipboardToast(false), 2000);
+      }
+    } catch (e) {
+      console.warn('Clipboard read failed:', e);
+    }
   };
 
   return (
@@ -70,7 +108,7 @@ export const ControlsSidebar: React.FC<ControlsSidebarProps> = ({
         </div>
       </div>
 
-      {/* Hardware Buttons */}
+      {/* Hardware Triggers */}
       <div>
         <h3 className="text-xs font-bold tracking-wider uppercase text-slate-200 mb-3">
           Hardware Triggers
@@ -108,11 +146,23 @@ export const ControlsSidebar: React.FC<ControlsSidebarProps> = ({
         </div>
       </div>
 
-      {/* Text Input Sender */}
+      {/* Feature #6: Smart Clipboard & Fast Text Injection */}
       <div>
-        <h3 className="text-xs font-bold tracking-wider uppercase text-slate-200 mb-2.5">
-          Fast Keyboard Injection
-        </h3>
+        <div className="flex items-center justify-between mb-2.5">
+          <h3 className="text-xs font-bold tracking-wider uppercase text-slate-200">
+            Smart Clipboard &amp; Typing
+          </h3>
+          <button
+            onClick={handlePasteClipboard}
+            disabled={!isStreaming}
+            className="flex items-center gap-1 text-[10px] text-cyan-400 hover:text-cyan-300 font-semibold transition-all disabled:opacity-40"
+            title="Paste PC Clipboard Directly Into Active Field"
+          >
+            <Clipboard className="w-3 h-3" />
+            <span>{clipboardToast ? 'Pasted!' : 'Paste from PC'}</span>
+          </button>
+        </div>
+
         <form onSubmit={handleSendText} className="flex gap-2">
           <input
             type="text"
@@ -133,28 +183,55 @@ export const ControlsSidebar: React.FC<ControlsSidebarProps> = ({
         </form>
         <p className="text-[10px] text-slate-400 mt-1.5 flex items-center gap-1">
           <Sparkles className="w-3 h-3 text-indigo-400" />
-          <span>Or focus phone screen and type directly on your physical keyboard.</span>
+          <span>Or focus phone screen and type directly on physical keyboard.</span>
         </p>
       </div>
 
-      {/* Extra Utilities */}
-      <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800/80">
+      {/* Quick Utilities: Gamepad HUD, Privacy Mode, Snapshot */}
+      <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800/80">
+        {/* Toggle Gamepad HUD */}
         <button
-          onClick={() => onSendKey(224)}
+          onClick={onToggleGamepad}
           disabled={!isStreaming}
-          className="btn-3d-hardware flex items-center justify-center gap-1.5 p-2 rounded-xl text-slate-300 hover:text-amber-300 text-xs transition-all disabled:opacity-40"
+          className={`btn-3d-hardware flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-xs transition-all disabled:opacity-40 ${
+            isGameActive
+              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+              : 'text-slate-300 hover:text-emerald-300'
+          }`}
+          title="Toggle Contextual Gamepad Overlay"
         >
-          <Sun className="w-3.5 h-3.5 text-amber-400" />
-          <span className="font-semibold text-[11px]">Wake Up</span>
+          <Gamepad2 className="w-4 h-4 text-emerald-400" />
+          <span className="font-semibold text-[10px]">Gamepad</span>
         </button>
 
+        {/* Feature #10: Privacy Mode */}
+        <button
+          onClick={onTogglePrivacy}
+          disabled={!isStreaming}
+          className={`btn-3d-hardware flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-xs transition-all disabled:opacity-40 ${
+            privacyMode
+              ? 'bg-purple-500/25 text-purple-200 border border-purple-400/60 shadow-[0_0_15px_rgba(168,85,247,0.3)]'
+              : 'text-slate-300 hover:text-purple-300'
+          }`}
+          title="Blank physical phone screen while PC stream stays active"
+        >
+          {privacyMode ? (
+            <EyeOff className="w-4 h-4 text-purple-400" />
+          ) : (
+            <Eye className="w-4 h-4 text-purple-400" />
+          )}
+          <span className="font-semibold text-[10px]">Privacy</span>
+        </button>
+
+        {/* Snapshot */}
         <button
           onClick={() => onSendKey(120)}
           disabled={!isStreaming}
-          className="btn-3d-hardware flex items-center justify-center gap-1.5 p-2 rounded-xl text-slate-300 hover:text-cyan-300 text-xs transition-all disabled:opacity-40"
+          className="btn-3d-hardware flex flex-col items-center justify-center gap-1 p-2 rounded-xl text-slate-300 hover:text-cyan-300 text-xs transition-all disabled:opacity-40"
+          title="Take Screenshot"
         >
-          <Camera className="w-3.5 h-3.5 text-cyan-400" />
-          <span className="font-semibold text-[11px]">Snapshot</span>
+          <Camera className="w-4 h-4 text-cyan-400" />
+          <span className="font-semibold text-[10px]">Snapshot</span>
         </button>
       </div>
     </div>
