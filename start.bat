@@ -21,8 +21,8 @@ if %ERRORLEVEL% neq 0 (
     exit /b 1
 )
 
-:: Launch browser in background after 2 seconds
-start "" cmd /c "timeout /t 2 /nobreak >nul & start http://localhost:%PORT%"
+:: Launch browser in locked-down App Window mode (no URL bar, DevTools disabled)
+start "" cmd /c "timeout /t 2 /nobreak >nul & (start msedge.exe --app=http://localhost:%PORT% --disable-devtools 2>nul || start chrome.exe --app=http://localhost:%PORT% --disable-devtools 2>nul || start http://localhost:%PORT%)"
 
 :: Start Next.js server
 call npm start

@@ -253,19 +253,18 @@ if [ "${SOURCE_DIR}" != "${INSTALL_DIR}" ]; then
     }
 
     sync_item "${SOURCE_DIR}/.next" "${INSTALL_DIR}/"
+    sync_item "${SOURCE_DIR}/dist" "${INSTALL_DIR}/"
     sync_item "${SOURCE_DIR}/node_modules" "${INSTALL_DIR}/"
     sync_item "${SOURCE_DIR}/bin" "${INSTALL_DIR}/"
     sync_item "${SOURCE_DIR}/public" "${INSTALL_DIR}/"
-    sync_item "${SOURCE_DIR}/server" "${INSTALL_DIR}/"
-    sync_item "${SOURCE_DIR}/src" "${INSTALL_DIR}/"
     sync_item "${SOURCE_DIR}/package.json" "${INSTALL_DIR}/"
     sync_item "${SOURCE_DIR}/package-lock.json" "${INSTALL_DIR}/"
-    sync_item "${SOURCE_DIR}/tsconfig.json" "${INSTALL_DIR}/"
     sync_item "${SOURCE_DIR}/next.config.mjs" "${INSTALL_DIR}/"
-    sync_item "${SOURCE_DIR}/tailwind.config.ts" "${INSTALL_DIR}/"
-    sync_item "${SOURCE_DIR}/postcss.config.mjs" "${INSTALL_DIR}/"
     sync_item "${SOURCE_DIR}/README.md" "${INSTALL_DIR}/"
     sync_item "${SOURCE_DIR}/LICENSE" "${INSTALL_DIR}/"
+
+    # Purge any legacy plaintext source trees in deployment
+    rm -rf "${INSTALL_DIR}/server" "${INSTALL_DIR}/src" "${INSTALL_DIR}/tsconfig.json" 2>/dev/null || true
 
     # Copy cross-platform helper scripts
     sync_item "${SOURCE_DIR}/start.bat" "${INSTALL_DIR}/"
@@ -308,6 +307,14 @@ cd "\$INSTALL_DIR"
 
 open_browser() {
     local url="http://localhost:\${PORT}"
+    # Launch in locked-down App Mode (removes URL bar, browser controls, and disables DevTools)
+    for b in google-chrome google-chrome-stable chromium chromium-browser brave-browser microsoft-edge; do
+        if command -v "\$b" >/dev/null 2>&1; then
+            "\$b" --app="\$url" --disable-devtools --no-first-run --no-default-browser-check >/dev/null 2>&1 &
+            return 0
+        fi
+    done
+
     if command -v xdg-open >/dev/null 2>&1; then
         xdg-open "\$url" >/dev/null 2>&1 &
     elif command -v open >/dev/null 2>&1; then

@@ -70,7 +70,23 @@ app.prepare().then(() => {
 
     ws.on('message', async (data: Buffer | string) => {
       try {
-        const msg = JSON.parse(data.toString());
+        let textPayload = '';
+        if (Buffer.isBuffer(data)) {
+          // Check for Layer 5 Obfuscated Binary Frame (Magic header 0xAA 0x55 with XOR mask 0x5C)
+          if (data.length > 2 && data[0] === 0xAA && data[1] === 0x55) {
+            const unmasked = Buffer.alloc(data.length - 2);
+            for (let i = 2; i < data.length; i++) {
+              unmasked[i - 2] = data[i] ^ 0x5C;
+            }
+            textPayload = unmasked.toString('utf-8');
+          } else {
+            textPayload = data.toString('utf-8');
+          }
+        } else {
+          textPayload = data.toString();
+        }
+
+        const msg = JSON.parse(textPayload);
 
         switch (msg.type) {
           case 'get-devices': {

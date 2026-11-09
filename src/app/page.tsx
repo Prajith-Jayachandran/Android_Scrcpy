@@ -16,10 +16,14 @@ import { useCanvasOcr } from '@/hooks/useCanvasOcr';
 import { usePictureInPicture } from '@/hooks/usePictureInPicture';
 import { useDeviceAudio } from '@/hooks/useDeviceAudio';
 import { useAdaptiveBitrate } from '@/hooks/useAdaptiveBitrate';
+import { useSecurityShield } from '@/hooks/useSecurityShield';
 import { DeviceInfo, StreamMeta, LogMessage } from '@/lib/types';
 import { Cast } from 'lucide-react';
 
 export default function Home() {
+  // Layer 3: DevTools, Inspection & Anti-Debugging Lockdown
+  useSecurityShield();
+
   const wsRef = useRef<WebSocket | null>(null);
 
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
