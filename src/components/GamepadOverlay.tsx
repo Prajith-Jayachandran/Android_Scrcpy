@@ -9,8 +9,18 @@ interface GamepadOverlayProps {
   meta?: StreamMeta | null;
   activePackage?: string;
   onSendKey: (keyCode: number) => void;
-  onTap: (x: number, y: number) => void;
-  onSwipe: (x1: number, y1: number, x2: number, y2: number, duration: number) => void;
+  onTap: (x: number, y: number, relX?: number, relY?: number) => void;
+  onSwipe: (
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    duration: number,
+    normX1?: number,
+    normY1?: number,
+    normX2?: number,
+    normY2?: number
+  ) => void;
   onClose: () => void;
 }
 
@@ -36,6 +46,7 @@ export const GamepadOverlay: React.FC<GamepadOverlayProps> = ({
   const [activeKeys, setActiveKeys] = useState<Set<string>>(new Set());
 
   const overlayRef = useRef<HTMLDivElement>(null);
+  const lastWasdTimeRef = useRef<{ [key: string]: number }>({});
 
   // Compute dynamic device screen width and height
   const screenW = meta?.physicalWidth || meta?.width || 1080;
@@ -85,25 +96,78 @@ export const GamepadOverlay: React.FC<GamepadOverlayProps> = ({
       // Check configured buttons
       const btn = buttons.find((b) => b.key.toLowerCase() === key);
       if (btn) {
-        // Trigger tap at mapped percentage
-        const targetX = Math.round((btn.xPercent / 100) * screenW);
-        const targetY = Math.round((btn.yPercent / 100) * screenH);
-        onTap(targetX, targetY);
+        if (e.repeat) return; // Prevent key repeat flooding
+        const normX = btn.xPercent / 100;
+        const normY = btn.yPercent / 100;
+        const targetX = Math.round(normX * screenW);
+        const targetY = Math.round(normY * screenH);
+        onTap(targetX, targetY, normX, normY);
+        return;
       }
 
-      // Dynamic WASD Directional Touch Movement relative to device resolution
-      const joyCenterX = Math.round(screenW * 0.22);
-      const joyCenterY = Math.round(screenH * 0.78);
-      const joyDelta = Math.round(Math.min(screenW, screenH) * 0.08);
+      // Dynamic WASD Directional Touch Movement with repeat throttling
+      if (['w', 'a', 's', 'd'].includes(key)) {
+        const now = Date.now();
+        const lastTime = lastWasdTimeRef.current[key] || 0;
+        if (now - lastTime < 110) return; // Throttle to prevent swipe queue backlog
+        lastWasdTimeRef.current[key] = now;
 
-      if (key === 'w') {
-        onSwipe(joyCenterX, joyCenterY, joyCenterX, joyCenterY - joyDelta, 120); // Move Up
-      } else if (key === 's') {
-        onSwipe(joyCenterX, joyCenterY, joyCenterX, joyCenterY + joyDelta, 120); // Move Down
-      } else if (key === 'a') {
-        onSwipe(joyCenterX, joyCenterY, joyCenterX - joyDelta, joyCenterY, 120); // Move Left
-      } else if (key === 'd') {
-        onSwipe(joyCenterX, joyCenterY, joyCenterX + joyDelta, joyCenterY, 120); // Move Right
+        const joyNormX = 0.22;
+        const joyNormY = 0.78;
+        const deltaNorm = 0.08;
+        const joyCenterX = Math.round(screenW * joyNormX);
+        const joyCenterY = Math.round(screenH * joyNormY);
+        const joyDelta = Math.round(Math.min(screenW, screenH) * deltaNorm);
+
+        if (key === 'w') {
+          onSwipe(
+            joyCenterX,
+            joyCenterY,
+            joyCenterX,
+            joyCenterY - joyDelta,
+            40,
+            joyNormX,
+            joyNormY,
+            joyNormX,
+            joyNormY - deltaNorm
+          );
+        } else if (key === 's') {
+          onSwipe(
+            joyCenterX,
+            joyCenterY,
+            joyCenterX,
+            joyCenterY + joyDelta,
+            40,
+            joyNormX,
+            joyNormY,
+            joyNormX,
+            joyNormY + deltaNorm
+          );
+        } else if (key === 'a') {
+          onSwipe(
+            joyCenterX,
+            joyCenterY,
+            joyCenterX - joyDelta,
+            joyCenterY,
+            40,
+            joyNormX,
+            joyNormY,
+            joyNormX - deltaNorm,
+            joyNormY
+          );
+        } else if (key === 'd') {
+          onSwipe(
+            joyCenterX,
+            joyCenterY,
+            joyCenterX + joyDelta,
+            joyCenterY,
+            40,
+            joyNormX,
+            joyNormY,
+            joyNormX + deltaNorm,
+            joyNormY
+          );
+        }
       }
     };
 
@@ -150,12 +214,18 @@ export const GamepadOverlay: React.FC<GamepadOverlayProps> = ({
         // Camera swipe centered in right half of screen
         const centerX = Math.round(screenW * 0.72);
         const centerY = Math.round(screenH * 0.52);
+        const endX = centerX + Math.round(dx * 2.2);
+        const endY = centerY + Math.round(dy * 2.2);
         onSwipe(
           centerX,
           centerY,
-          centerX + Math.round(dx * 2.2),
-          centerY + Math.round(dy * 2.2),
-          40
+          endX,
+          endY,
+          30,
+          0.72,
+          0.52,
+          endX / screenW,
+          endY / screenH
         );
       }
     };
@@ -281,9 +351,11 @@ export const GamepadOverlay: React.FC<GamepadOverlayProps> = ({
                 : 'bg-black/50 backdrop-blur-md text-slate-200 border-white/20 hover:border-indigo-400 hover:text-white'
             }`}
             onClick={() => {
-              const targetX = Math.round((btn.xPercent / 100) * screenW);
-              const targetY = Math.round((btn.yPercent / 100) * screenH);
-              onTap(targetX, targetY);
+              const normX = btn.xPercent / 100;
+              const normY = btn.yPercent / 100;
+              const targetX = Math.round(normX * screenW);
+              const targetY = Math.round(normY * screenH);
+              onTap(targetX, targetY, normX, normY);
             }}
           >
             <span className="text-[10px] font-mono leading-none">{btn.label}</span>

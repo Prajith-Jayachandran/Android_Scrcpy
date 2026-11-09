@@ -245,6 +245,11 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!isStreaming) return;
 
+    // When Gamepad HUD is active, bypass game movement & action keys so they are handled exclusively by GamepadOverlay
+    if (isGameActive && ['w', 'a', 's', 'd', ' ', 'r', 'c', 'f'].includes(e.key.toLowerCase())) {
+      return;
+    }
+
     if (e.key === 'Backspace') {
       onSendKey(67); // KEYCODE_DEL
       e.preventDefault();

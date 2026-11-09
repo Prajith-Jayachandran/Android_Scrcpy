@@ -13,8 +13,8 @@ export interface DeviceInfo {
 export class AdbManager {
   private adbPath: string;
   private serverJarPath: string;
-  private activeShell: ChildProcess | null = null;
-  private activeShellDeviceId: string | null = null;
+  private deviceShells: Map<string, ChildProcess> = new Map();
+  private screenSizeCache: Map<string, { width: number; height: number }> = new Map();
 
   constructor() {
     this.adbPath = this.resolveAdbPath();
@@ -53,54 +53,71 @@ export class AdbManager {
     return this.adbPath;
   }
 
-  // Persistent interactive shell for zero-latency safe Android input injection
+  // Persistent interactive shell per device for zero-latency safe Android input injection
   private getOrCreateShell(deviceId: string): ChildProcess {
-    if (this.activeShell && this.activeShellDeviceId === deviceId && !this.activeShell.killed) {
-      return this.activeShell;
+    const existing = this.deviceShells.get(deviceId);
+    if (existing && !existing.killed && existing.stdin && !existing.stdin.destroyed) {
+      return existing;
     }
-
-    this.closeShell();
 
     const shell = spawn(this.adbPath, ['-s', deviceId, 'shell']);
     shell.stdin?.setDefaultEncoding('utf-8');
-    this.activeShell = shell;
-    this.activeShellDeviceId = deviceId;
 
     shell.on('exit', () => {
-      if (this.activeShell === shell) {
-        this.activeShell = null;
-        this.activeShellDeviceId = null;
-      }
+      this.deviceShells.delete(deviceId);
     });
 
+    shell.on('error', (err) => {
+      console.error(`[Persistent Shell Error - ${deviceId}]:`, err.message);
+      this.deviceShells.delete(deviceId);
+    });
+
+    this.deviceShells.set(deviceId, shell);
     return shell;
   }
 
-  public closeShell(): void {
-    if (this.activeShell) {
+  public closeDeviceShell(deviceId: string): void {
+    const shell = this.deviceShells.get(deviceId);
+    if (shell) {
       try {
-        this.activeShell.stdin?.end();
-        this.activeShell.kill();
+        shell.stdin?.end();
+        shell.kill();
       } catch (e) {}
-      this.activeShell = null;
-      this.activeShellDeviceId = null;
+      this.deviceShells.delete(deviceId);
     }
   }
 
-  // Query device physical screen dimensions (e.g. 1080x2373)
+  public closeShell(): void {
+    for (const [, shell] of this.deviceShells) {
+      try {
+        shell.stdin?.end();
+        shell.kill();
+      } catch (e) {}
+    }
+    this.deviceShells.clear();
+  }
+
+  // Query device physical screen dimensions (e.g. 1080x2373) with memoization cache
   public async getDeviceScreenSize(deviceId: string): Promise<{ width: number; height: number }> {
+    const cached = this.screenSizeCache.get(deviceId);
+    if (cached) return cached;
+
     return new Promise((resolve) => {
       execFile(this.adbPath, ['-s', deviceId, 'shell', 'wm', 'size'], (err, stdout) => {
         if (!err && stdout) {
           const match = stdout.match(/(?:Override|Physical) size:\s*(\d+)x(\d+)/i);
           if (match) {
-            return resolve({
+            const size = {
               width: parseInt(match[1], 10),
               height: parseInt(match[2], 10),
-            });
+            };
+            this.screenSizeCache.set(deviceId, size);
+            return resolve(size);
           }
         }
-        resolve({ width: 1080, height: 2400 });
+        const fallback = { width: 1080, height: 2400 };
+        this.screenSizeCache.set(deviceId, fallback);
+        resolve(fallback);
       });
     });
   }
@@ -218,6 +235,7 @@ export class AdbManager {
       'video=true',
       'audio=true',
       'audio_codec=raw',
+      'audio_source=playback',
       'audio_dup=true',
       'control=false',
       'send_dummy_byte=true',
@@ -244,49 +262,64 @@ export class AdbManager {
     return proc;
   }
 
-  // Bulletproof input injection using direct atomic ADB commands
+  // Zero-latency input injection using persistent interactive shell pipes
   public injectKey(deviceId: string, keyCode: number): void {
-    execFile(this.adbPath, ['-s', deviceId, 'shell', 'input', 'keyevent', keyCode.toString()], (err) => {
-      if (err) console.error(`[ADB Key Error]:`, err.message);
-    });
+    try {
+      const shell = this.getOrCreateShell(deviceId);
+      shell.stdin?.write(`input keyevent ${keyCode}\n`);
+    } catch {
+      execFile(this.adbPath, ['-s', deviceId, 'shell', 'input', 'keyevent', keyCode.toString()], () => {});
+    }
   }
 
   public injectText(deviceId: string, text: string): void {
     const escaped = text.replace(/ /g, '%s').replace(/[^a-zA-Z0-9%s._-]/g, '');
-    execFile(this.adbPath, ['-s', deviceId, 'shell', 'input', 'text', escaped], (err) => {
-      if (err) console.error(`[ADB Text Error]:`, err.message);
-    });
+    if (!escaped) return;
+    try {
+      const shell = this.getOrCreateShell(deviceId);
+      shell.stdin?.write(`input text ${escaped}\n`);
+    } catch {
+      execFile(this.adbPath, ['-s', deviceId, 'shell', 'input', 'text', escaped], () => {});
+    }
   }
 
   public injectTap(deviceId: string, x: number, y: number): void {
-    execFile(
-      this.adbPath,
-      ['-s', deviceId, 'shell', 'input', 'tap', Math.round(x).toString(), Math.round(y).toString()],
-      (err) => {
-        if (err) console.error(`[ADB Tap Error]:`, err.message);
-      }
-    );
+    try {
+      const shell = this.getOrCreateShell(deviceId);
+      shell.stdin?.write(`input tap ${Math.round(x)} ${Math.round(y)}\n`);
+    } catch {
+      execFile(
+        this.adbPath,
+        ['-s', deviceId, 'shell', 'input', 'tap', Math.round(x).toString(), Math.round(y).toString()],
+        () => {}
+      );
+    }
   }
 
-  public injectSwipe(deviceId: string, x1: number, y1: number, x2: number, y2: number, durationMs = 150): void {
-    execFile(
-      this.adbPath,
-      [
-        '-s',
-        deviceId,
-        'shell',
-        'input',
-        'swipe',
-        Math.round(x1).toString(),
-        Math.round(y1).toString(),
-        Math.round(x2).toString(),
-        Math.round(y2).toString(),
-        Math.round(durationMs).toString()
-      ],
-      (err) => {
-        if (err) console.error(`[ADB Swipe Error]:`, err.message);
-      }
-    );
+  public injectSwipe(deviceId: string, x1: number, y1: number, x2: number, y2: number, durationMs = 50): void {
+    try {
+      const shell = this.getOrCreateShell(deviceId);
+      shell.stdin?.write(
+        `input swipe ${Math.round(x1)} ${Math.round(y1)} ${Math.round(x2)} ${Math.round(y2)} ${Math.round(durationMs)}\n`
+      );
+    } catch {
+      execFile(
+        this.adbPath,
+        [
+          '-s',
+          deviceId,
+          'shell',
+          'input',
+          'swipe',
+          Math.round(x1).toString(),
+          Math.round(y1).toString(),
+          Math.round(x2).toString(),
+          Math.round(y2).toString(),
+          Math.round(durationMs).toString()
+        ],
+        () => {}
+      );
+    }
   }
 
   // --------------------------------------------------------------------------
@@ -596,7 +629,12 @@ export class AdbManager {
           }
           execFile(
             this.adbPath,
-            ['-s', deviceId, 'shell', 'cmd', 'media_session', 'volume', '--stream', '3', '--set', '0'],
+            [
+              '-s',
+              deviceId,
+              'shell',
+              'cmd media_session volume --stream 3 --set 0 2>/dev/null || true; cmd audio set-volume 3 0 2>/dev/null || true'
+            ],
             (setErr) => {
               resolve(!setErr);
             }
@@ -608,10 +646,15 @@ export class AdbManager {
 
   public async unmuteDeviceSpeaker(deviceId: string): Promise<boolean> {
     return new Promise((resolve) => {
-      const prev = this.savedDeviceVolumes.get(deviceId) || 80;
+      const prev = this.savedDeviceVolumes.get(deviceId) || 100;
       execFile(
         this.adbPath,
-        ['-s', deviceId, 'shell', 'cmd', 'media_session', 'volume', '--stream', '3', '--set', prev.toString()],
+        [
+          '-s',
+          deviceId,
+          'shell',
+          `cmd media_session volume --stream 3 --set ${prev} 2>/dev/null || true; cmd audio set-volume 3 ${prev} 2>/dev/null || true`
+        ],
         (err) => {
           resolve(!err);
         }

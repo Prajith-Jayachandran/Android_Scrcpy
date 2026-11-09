@@ -128,6 +128,9 @@ app.prepare().then(() => {
             };
             activeSessions.set(deviceId, session);
 
+            // Ensure phone speaker volume is unmuted by default on start
+            await adb.unmuteDeviceSpeaker(deviceId);
+
             // 4. Connect video stream socket
             setTimeout(() => {
               sendLog(`Connecting to video stream for ${deviceId}...`);
@@ -423,14 +426,22 @@ app.prepare().then(() => {
     });
   });
 
+  let cachedDevices: DeviceInfo[] = [];
+  let lastDeviceQueryTime = 0;
+
   async function getTargetDeviceIds(requestedId?: string, syncAll?: boolean): Promise<string[]> {
     if (syncAll) {
-      try {
-        const devices = await adb.getDevices();
-        if (devices.length > 0) {
-          return devices.map((d) => d.id);
-        }
-      } catch (e) {}
+      const now = Date.now();
+      if (now - lastDeviceQueryTime > 2000 || cachedDevices.length === 0) {
+        try {
+          cachedDevices = await adb.getDevices();
+          lastDeviceQueryTime = now;
+        } catch (e) {}
+      }
+      const readyDevices = cachedDevices.filter((d) => d.status === 'device').map((d) => d.id);
+      if (readyDevices.length > 0) {
+        return readyDevices;
+      }
       if (activeSessions.size > 0) {
         return Array.from(activeSessions.keys());
       }
@@ -454,6 +465,7 @@ app.prepare().then(() => {
         }
         await adb.removeForward(session.deviceId, session.forwardPort);
         await adb.unmuteDeviceSpeaker(deviceId);
+        adb.closeDeviceShell(deviceId);
       } catch (e) {}
       activeSessions.delete(deviceId);
       await adb.killAllScrcpyServers(deviceId);
