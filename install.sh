@@ -237,7 +237,14 @@ if [ "${SOURCE_DIR}" != "${INSTALL_DIR}" ]; then
         local target="$2"
         if [ ! -e "$src" ]; then return 0; fi
 
-        if [ "$OS" = "Linux" ]; then
+        if command -v rsync >/dev/null 2>&1; then
+            if [ -d "$src" ]; then
+                mkdir -p "${target}/$(basename "$src")"
+                rsync -a --delete "$src/" "${target}/$(basename "$src")/"
+            else
+                rsync -a "$src" "$target"
+            fi
+        elif [ "$OS" = "Linux" ]; then
             cp -r --remove-destination "$src" "$target"
         else
             rm -rf "${target}/$(basename "$src")" 2>/dev/null || true
