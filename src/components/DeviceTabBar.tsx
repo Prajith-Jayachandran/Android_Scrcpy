@@ -76,7 +76,10 @@ export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
           const tabNumber = index + 1;
           const isActive = device.id === activeDeviceId;
           const isStreaming = streamingDeviceIds.has(device.id);
-          const brand = device.model || device.product || 'Android Device';
+          const brand =
+            device.model ||
+            device.product ||
+            (device.status === 'unauthorized' ? `Device (${device.id.substring(0, 8)})` : 'Android Device');
 
           return (
             <button
@@ -105,10 +108,15 @@ export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
                 {brand}
               </span>
 
-              {/* Streaming Online Indicator */}
-              {isStreaming && (
+              {/* Unauthorized warning or Streaming indicator */}
+              {device.status === 'unauthorized' ? (
+                <span
+                  className="w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_8px_#fbbf24] animate-pulse"
+                  title="Unauthorized: Accept USB debugging on phone screen"
+                />
+              ) : isStreaming ? (
                 <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse" />
-              )}
+              ) : null}
             </button>
           );
         })}

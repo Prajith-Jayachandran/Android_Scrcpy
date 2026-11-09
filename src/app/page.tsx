@@ -50,9 +50,20 @@ export default function Home() {
 
   // USB Multi-Device Link Pop-up Modal State
   const [newUsbModalOpen, setNewUsbModalOpen] = useState<boolean>(false);
+  const newUsbModalOpenRef = useRef<boolean>(false);
+  useEffect(() => {
+    newUsbModalOpenRef.current = newUsbModalOpen;
+  }, [newUsbModalOpen]);
+
   const [detectedUsbDevice, setDetectedUsbDevice] = useState<DeviceInfo | null>(null);
   const isManualRefreshRef = useRef<boolean>(false);
   const knownDeviceIdsRef = useRef<Set<string>>(new Set());
+  const isInitialBootRef = useRef<boolean>(true);
+
+  const devicesRef = useRef<DeviceInfo[]>([]);
+  useEffect(() => {
+    devicesRef.current = devices;
+  }, [devices]);
 
   const addLog = useCallback((message: string) => {
     setLogs((prev) => [
@@ -358,45 +369,89 @@ export default function Home() {
         switch (msg.type) {
           case 'devices': {
             setIsScanning(false);
-            const newDevices: DeviceInfo[] = msg.devices || [];
-            setDevices(newDevices);
+            const incomingDevices: DeviceInfo[] = msg.devices || [];
+            const incomingIds = new Set(incomingDevices.map((d) => d.id));
 
-            // Clean up disconnected devices from known set
-            const currentIds = new Set(newDevices.map((d) => d.id));
+            // On initial boot, link all currently detected devices directly
+            if (isInitialBootRef.current) {
+              isInitialBootRef.current = false;
+              incomingDevices.forEach((d) => knownDeviceIdsRef.current.add(d.id));
+              setDevices(incomingDevices);
+
+              if (incomingDevices.length > 0 && !selectedDeviceIdRef.current) {
+                const readyDev = incomingDevices.find((d: DeviceInfo) => d.status === 'device');
+                setSelectedDeviceId(readyDev ? readyDev.id : incomingDevices[0].id);
+                addLog(`✔ Initialized tool with ${incomingDevices.length} USB device(s).`);
+              }
+              isManualRefreshRef.current = false;
+              break;
+            }
+
+            // 1. Clean up disconnected devices from known set
             for (const id of Array.from(knownDeviceIdsRef.current)) {
-              if (!currentIds.has(id)) {
+              if (!incomingIds.has(id)) {
                 knownDeviceIdsRef.current.delete(id);
               }
             }
 
-            // On initial boot, mark all currently detected devices as already known
-            if (knownDeviceIdsRef.current.size === 0 && newDevices.length > 0) {
-              newDevices.forEach((d) => {
-                if (d.status === 'device') knownDeviceIdsRef.current.add(d.id);
-              });
-            }
+            // Update existing connected devices (handles unplugging & status changes like unauthorized -> device)
+            setDevices((prevConnected) => {
+              const updated = prevConnected
+                .filter((d) => incomingIds.has(d.id))
+                .map((d) => {
+                  const latest = incomingDevices.find((inc) => inc.id === d.id);
+                  if (latest) {
+                    if (d.status === 'unauthorized' && latest.status === 'device') {
+                      addLog(`✔ Device ${latest.model || latest.id} authorized on phone! Ready to mirror.`);
+                    }
+                    return latest;
+                  }
+                  return d;
+                });
 
+              // If currently selected device was disconnected, switch to first remaining
+              if (selectedDeviceIdRef.current && !incomingIds.has(selectedDeviceIdRef.current)) {
+                const fallback = updated[0];
+                setSelectedDeviceId(fallback ? fallback.id : '');
+                addLog(`Device ${selectedDeviceIdRef.current} disconnected.`);
+              }
+
+              return updated;
+            });
+
+            // 2. Check for New Devices (Authorized OR Unauthorized)
             if (isManualRefreshRef.current) {
               isManualRefreshRef.current = false;
-              // Check for any genuinely NEW USB device that is NOT yet in knownDeviceIdsRef
-              const brandNewDevice = newDevices.find(
-                (d) => d.status === 'device' && !knownDeviceIdsRef.current.has(d.id)
-              );
+              // User clicked refresh: find any physical USB device not yet connected to the tool
+              const currentConnectedIds = new Set(devicesRef.current.map((d) => d.id));
+              const unlinkedCandidate = incomingDevices.find((d) => !currentConnectedIds.has(d.id));
 
-              if (brandNewDevice) {
-                setDetectedUsbDevice(brandNewDevice);
+              if (unlinkedCandidate) {
+                setDetectedUsbDevice(unlinkedCandidate);
                 setNewUsbModalOpen(true);
-                addLog(`Detected new USB device: ${brandNewDevice.model || brandNewDevice.id}. Prompting to link as tab...`);
-              } else if (newDevices.length > 0) {
-                addLog(`✔ Device list refreshed: ${newDevices.length} device(s) active and ready.`);
+                addLog(
+                  `Detected new USB device: ${unlinkedCandidate.model || unlinkedCandidate.id} (${unlinkedCandidate.status}). Prompting to connect to tool...`
+                );
+              } else if (incomingDevices.length > 0) {
+                addLog(`✔ Device list refreshed: ${incomingDevices.length} device(s) active and ready.`);
               } else {
                 addLog('No USB devices detected. Connect a phone via USB with USB debugging enabled.');
               }
             } else {
-              // Automatic initial selection on load if none selected yet
-              if (newDevices.length > 0 && !selectedDeviceIdRef.current) {
-                const readyDev = newDevices.find((d: DeviceInfo) => d.status === 'device');
-                setSelectedDeviceId(readyDev ? readyDev.id : newDevices[0].id);
+              // Automatic 4s background scan:
+              // Prompt for any new device that hasn't been acknowledged (not in knownDeviceIdsRef)
+              if (!newUsbModalOpenRef.current) {
+                const brandNewCandidate = incomingDevices.find(
+                  (d) => !knownDeviceIdsRef.current.has(d.id)
+                );
+
+                if (brandNewCandidate) {
+                  setDetectedUsbDevice(brandNewCandidate);
+                  setNewUsbModalOpen(true);
+                  addLog(
+                    `Detected new USB device: ${brandNewCandidate.model || brandNewCandidate.id} (${brandNewCandidate.status}). Prompting to connect to tool...`
+                  );
+                }
               }
             }
             break;
@@ -614,7 +669,7 @@ export default function Home() {
     }
   }, [syncAll, devices, streamingDeviceIds, startStream, addLog]);
 
-  // Confirm Pop-up: Spawn New USB Link Tab & Start Mirroring
+  // Confirm Pop-up: Connect New USB Device as Tab & Start Mirroring
   const handleConfirmNewUsbLink = useCallback(() => {
     if (!detectedUsbDevice) return;
     const targetId = detectedUsbDevice.id;
@@ -622,18 +677,44 @@ export default function Home() {
     knownDeviceIdsRef.current.add(targetId);
     setNewUsbModalOpen(false);
 
+    // Add to connected devices list so it appears in the top tab bar and dropdown
+    setDevices((prev) => {
+      if (prev.some((d) => d.id === targetId)) {
+        return prev.map((d) => (d.id === targetId ? detectedUsbDevice : d));
+      }
+      return [...prev, detectedUsbDevice];
+    });
+
     setSelectedDeviceId(targetId);
 
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: 'start-stream',
-          deviceId: targetId,
-        })
+    if (detectedUsbDevice.status === 'device') {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: 'start-stream',
+            deviceId: targetId,
+          })
+        );
+      }
+      addLog(`✔ Created new USB link tab for ${brand} and started mirroring!`);
+    } else {
+      addLog(
+        `✔ Added ${brand} as a tab in the tool. Please tap "Allow USB debugging" on the phone screen to enable mirroring.`
       );
     }
 
-    addLog(`✔ Created new USB link tab for ${brand} and started mirroring!`);
+    setDetectedUsbDevice(null);
+  }, [detectedUsbDevice, addLog]);
+
+  // Cancel Pop-up: Dismiss modal and keep existing tabs untouched
+  const handleCancelNewUsbLink = useCallback(() => {
+    if (detectedUsbDevice) {
+      knownDeviceIdsRef.current.add(detectedUsbDevice.id);
+      addLog(
+        `Ignored USB device: ${detectedUsbDevice.model || detectedUsbDevice.id}. Click the refresh icon near the dropdown to connect it at any time.`
+      );
+    }
+    setNewUsbModalOpen(false);
     setDetectedUsbDevice(null);
   }, [detectedUsbDevice, addLog]);
 
@@ -712,27 +793,23 @@ export default function Home() {
 
   // Tab number calculation for modal
   const targetTabNumber = detectedUsbDevice
-    ? devices.findIndex((d) => d.id === detectedUsbDevice.id) + 1 || devices.length + 1
-    : 1;
+    ? devices.findIndex((d) => d.id === detectedUsbDevice.id) !== -1
+      ? devices.findIndex((d) => d.id === detectedUsbDevice.id) + 1
+      : devices.length + 1
+    : devices.length + 1;
 
   return (
     <main className="relative flex h-screen w-screen bg-[#04060c] overflow-hidden text-slate-100 font-sans select-none">
       {/* Lightweight, GPU-friendly Cursor Trail */}
       <CursorTrail />
 
-      {/* Pop-up: Create New Link via USB Modal */}
+      {/* Pop-up: Connect New USB Device Modal */}
       <NewUsbDeviceModal
         isOpen={newUsbModalOpen}
         device={detectedUsbDevice}
         targetTabNumber={targetTabNumber}
         onConfirm={handleConfirmNewUsbLink}
-        onCancel={() => {
-          if (detectedUsbDevice) {
-            knownDeviceIdsRef.current.add(detectedUsbDevice.id);
-          }
-          setNewUsbModalOpen(false);
-          setDetectedUsbDevice(null);
-        }}
+        onCancel={handleCancelNewUsbLink}
       />
 
       {/* Static 3D Ambient Mesh Glow (Zero CPU/Compositor Load) */}

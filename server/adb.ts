@@ -130,10 +130,12 @@ export class AdbManager {
         }
 
         const lines = stdout.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        const headerIdx = lines.findIndex(l => l.toLowerCase().startsWith('list of devices attached'));
+        const deviceLines = headerIdx !== -1 ? lines.slice(headerIdx + 1) : lines;
         const devices: DeviceInfo[] = [];
 
-        for (let i = 1; i < lines.length; i++) {
-          const line = lines[i];
+        for (const line of deviceLines) {
+          if (line.startsWith('*')) continue;
           const parts = line.split(/\s+/);
           if (parts.length >= 2) {
             const id = parts[0];

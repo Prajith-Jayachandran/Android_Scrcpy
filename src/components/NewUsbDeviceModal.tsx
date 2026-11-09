@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Usb, Smartphone, Check, X, ArrowRight, ShieldCheck, Sparkles } from 'lucide-react';
+import { Usb, Smartphone, Check, X, ShieldCheck, Sparkles, AlertTriangle } from 'lucide-react';
 import { DeviceInfo } from '@/lib/types';
 
 interface NewUsbDeviceModalProps {
@@ -21,7 +21,10 @@ export const NewUsbDeviceModal: React.FC<NewUsbDeviceModalProps> = ({
 }) => {
   if (!isOpen || !device) return null;
 
-  const brand = device.model || device.product || 'Android Device';
+  const brand =
+    device.model ||
+    device.product ||
+    (device.status === 'unauthorized' ? `Device (${device.id.substring(0, 10)})` : 'Android Device');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
@@ -37,7 +40,7 @@ export const NewUsbDeviceModal: React.FC<NewUsbDeviceModalProps> = ({
             </div>
             <div>
               <h2 className="text-base font-extrabold text-white tracking-tight flex items-center gap-1.5">
-                <span>Create New Link via USB</span>
+                <span>Connect New USB Device</span>
                 <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
               </h2>
               <p className="text-xs text-slate-400">
@@ -95,13 +98,34 @@ export const NewUsbDeviceModal: React.FC<NewUsbDeviceModalProps> = ({
                   : 'text-slate-400'
               }`}
             >
-              {device.status === 'device' ? '✔ Authorized & Ready' : device.status}
+              {device.status === 'device' ? '✔ Authorized & Ready' : device.status === 'unauthorized' ? '⚠️ Unauthorized' : device.status}
             </span>
           </div>
+
+          {/* Prompt banner for unauthorized devices */}
+          {device.status === 'unauthorized' && (
+            <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex flex-col gap-1 mt-1">
+              <div className="flex items-center gap-1.5 font-bold text-amber-400">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span>Phone Screen Confirmation Required</span>
+              </div>
+              <p className="text-[11px] text-amber-200/90 leading-relaxed">
+                Unlock your phone and tap <strong>&quot;Allow USB debugging&quot;</strong> (or &quot;Always allow from this computer&quot;) to complete authorization.
+              </p>
+            </div>
+          )}
         </div>
 
         <p className="text-xs text-slate-300 leading-relaxed">
-          Spawns a new independent tab <strong className="text-indigo-300">Tab #{targetTabNumber}: {brand}</strong> and immediately begins low-latency hardware 60 FPS mirroring.
+          {device.status === 'device' ? (
+            <>
+              Connects <strong className="text-indigo-300">Tab #{targetTabNumber}: {brand}</strong> to the tool and immediately begins low-latency hardware 60 FPS mirroring.
+            </>
+          ) : (
+            <>
+              Connects <strong className="text-amber-300">Tab #{targetTabNumber}: {brand}</strong> to the tool. Mirroring will be ready as soon as you confirm the RSA prompt on your phone screen.
+            </>
+          )}
         </p>
 
         {/* Action Buttons */}
@@ -118,7 +142,7 @@ export const NewUsbDeviceModal: React.FC<NewUsbDeviceModalProps> = ({
             className="py-2.5 px-4 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/35 transition-all flex items-center justify-center gap-1.5"
           >
             <Check className="w-4 h-4" />
-            <span>OK (Spawn &amp; Mirror)</span>
+            <span>{device.status === 'device' ? 'OK (Connect & Mirror)' : 'OK (Connect to Tool)'}</span>
           </button>
         </div>
       </div>

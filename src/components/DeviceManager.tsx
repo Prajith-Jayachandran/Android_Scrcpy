@@ -51,7 +51,7 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({
           onClick={onRefresh}
           disabled={isScanning}
           className="p-2 rounded-xl bg-slate-800/50 hover:bg-slate-700/60 border border-slate-700/60 text-slate-300 hover:text-white transition-all disabled:opacity-40 shadow-sm group/btn"
-          title="Scan for New USB Devices &amp; Create New Link"
+          title="Scan for New USB Devices &amp; Connect to Tool"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin text-indigo-400' : 'group-hover/btn:rotate-90 transition-transform'}`} />
         </button>
@@ -70,13 +70,16 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({
               <option value="">No USB devices connected</option>
             ) : (
               devices.map((device, index) => {
-                const brand = device.model || device.product || 'Android Device';
+                const brand =
+                  device.model ||
+                  device.product ||
+                  (device.status === 'unauthorized' ? `Device (${device.id.substring(0, 8)})` : 'Android Device');
                 const isMirroring = streamingDeviceIds.has(device.id);
                 const isSelected = device.id === selectedDeviceId;
 
                 return (
                   <option key={device.id} value={device.id} className="bg-slate-900 text-slate-100 py-1">
-                    Tab #{index + 1}: {brand} {isMirroring ? '🟢 (Active 60 FPS)' : isSelected ? '🔵 (Selected)' : '⚪ (Click to Spawn Tab & Mirror)'}
+                    Tab #{index + 1}: {brand} {device.status === 'unauthorized' ? '⚠️ (Unauthorized)' : isMirroring ? '🟢 (Active 60 FPS)' : isSelected ? '🔵 (Selected)' : '⚪ (Ready)'}
                   </option>
                 );
               })
