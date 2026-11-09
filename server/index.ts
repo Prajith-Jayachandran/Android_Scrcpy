@@ -422,6 +422,64 @@ app.prepare().then(() => {
             }
             break;
           }
+
+          // Feature #6: Hardware State Mocking (Battery & Airplane Mode)
+          case 'set-battery-mock': {
+            if (msg.deviceId && typeof msg.level === 'number') {
+              const unplug = msg.unplug ?? true;
+              await adb.setBatteryMock(msg.deviceId, msg.level, unplug);
+              sendLog(`[Hardware Mock]: Battery set to ${msg.level}% (${unplug ? 'Unplugged' : 'Charging'}) on ${msg.deviceId}`);
+              ws.send(JSON.stringify({
+                type: 'hardware-mock-updated',
+                deviceId: msg.deviceId,
+                batteryLevel: msg.level,
+                isUnplugged: unplug,
+              }));
+            }
+            break;
+          }
+
+          case 'reset-battery-mock': {
+            if (msg.deviceId) {
+              await adb.resetBatteryMock(msg.deviceId);
+              sendLog(`[Hardware Mock]: Battery restored to real hardware state on ${msg.deviceId}`);
+              ws.send(JSON.stringify({
+                type: 'hardware-mock-reset',
+                deviceId: msg.deviceId,
+              }));
+            }
+            break;
+          }
+
+          case 'set-airplane-mode': {
+            if (msg.deviceId && typeof msg.enabled === 'boolean') {
+              await adb.setAirplaneMode(msg.deviceId, msg.enabled);
+              sendLog(`[Hardware Mock]: Airplane mode ${msg.enabled ? 'ENABLED' : 'DISABLED'} on ${msg.deviceId}`);
+              ws.send(JSON.stringify({
+                type: 'airplane-mode-updated',
+                deviceId: msg.deviceId,
+                airplaneMode: msg.enabled,
+              }));
+            }
+            break;
+          }
+
+          // Feature #7: Auto-Wake & Keep-Awake Guard
+          case 'auto-wake-device': {
+            if (msg.deviceId) {
+              await adb.autoWakeAndUnlock(msg.deviceId);
+              sendLog(`[Auto-Wake]: Woke up and unlocked keyguard on ${msg.deviceId}`);
+            }
+            break;
+          }
+
+          case 'set-keep-awake': {
+            if (msg.deviceId && typeof msg.stayAwake === 'boolean') {
+              await adb.setKeepAwake(msg.deviceId, msg.stayAwake);
+              sendLog(`[Keep-Awake Guard]: Screen stay-awake set to ${msg.stayAwake} on ${msg.deviceId}`);
+            }
+            break;
+          }
         }
       } catch (err: any) {
         console.error('[WS Message Error]', err);

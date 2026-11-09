@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { MacroStep, MacroErrorPolicy } from '@/lib/types';
+import { MacroStep, MacroErrorPolicy, MacroCondition } from '@/lib/types';
 
 interface UseMacroRecorderProps {
   deviceId: string;
@@ -10,6 +10,18 @@ interface UseMacroRecorderProps {
   onDispatchKey: (keyCode: number) => void;
   onDispatchText: (text: string) => void;
   onVerifyText?: (targetText: string, timeoutMs?: number) => Promise<boolean>;
+  onCompareCanvas?: (baselineDataUrl?: string) => Promise<number>;
+  onTriggerRipple?: (x: number, y: number, isSwipe?: boolean, x2?: number, y2?: number) => void;
+  onWakeDevice?: () => void;
+  onSetKeepAwake?: (stayAwake: boolean) => void;
+  onDispatchTapAll?: (normX: number, normY: number) => void;
+  onDispatchSwipeAll?: (
+    normX1: number,
+    normY1: number,
+    normX2: number,
+    normY2: number,
+    duration: number
+  ) => void;
   onLog?: (msg: string) => void;
 }
 
@@ -20,6 +32,12 @@ export function useMacroRecorder({
   onDispatchKey,
   onDispatchText,
   onVerifyText,
+  onCompareCanvas,
+  onTriggerRipple,
+  onWakeDevice,
+  onSetKeepAwake,
+  onDispatchTapAll,
+  onDispatchSwipeAll,
   onLog,
 }: UseMacroRecorderProps) {
   const [isRecording, setIsRecording] = useState(false);
@@ -31,6 +49,9 @@ export function useMacroRecorder({
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(-1);
   const [speedMultiplier, setSpeedMultiplier] = useState<number>(1.0);
   const [loopCount, setLoopCount] = useState<number>(1); // 0 = infinite
+
+  // Multi-Device Synchronized Dispatch Toggle (Feature #9)
+  const [syncAllMacroDevices, setSyncAllMacroDevices] = useState(false);
 
   // Fail-Safe & Self-Healing Error Policy
   const [errorPolicy, setErrorPolicy] = useState<MacroErrorPolicy>('abort_and_home');
@@ -165,12 +186,67 @@ export function useMacroRecorder({
     []
   );
 
+  // Add an If / Else Conditional Branching step (Feature #2)
+  const addConditionStep = useCallback((condition: MacroCondition) => {
+    const activeId = deviceIdRef.current;
+    if (!activeId) return;
+
+    const newStep: MacroStep = {
+      id: Math.random().toString(36).substring(2, 9),
+      delayMs: 300,
+      type: 'condition',
+      condition,
+    };
+
+    setDeviceStepsMap((prev) => {
+      const existing = prev[activeId] || [];
+      const updated = [...existing, newStep];
+      try {
+        localStorage.setItem(`aether_macro_${activeId}`, JSON.stringify(updated));
+      } catch (e) {}
+      return {
+        ...prev,
+        [activeId]: updated,
+      };
+    });
+  }, []);
+
+  // Add an Automated Visual Diff Regression step (Feature #10)
+  const addVisualDiffStep = useCallback(
+    (baselineImageData: string, diffThresholdPercent: number = 5) => {
+      const activeId = deviceIdRef.current;
+      if (!activeId) return;
+
+      const newStep: MacroStep = {
+        id: Math.random().toString(36).substring(2, 9),
+        delayMs: 400,
+        type: 'visual_diff',
+        baselineImageData,
+        diffThresholdPercent,
+      };
+
+      setDeviceStepsMap((prev) => {
+        const existing = prev[activeId] || [];
+        const updated = [...existing, newStep];
+        try {
+          localStorage.setItem(`aether_macro_${activeId}`, JSON.stringify(updated));
+        } catch (e) {}
+        return {
+          ...prev,
+          [activeId]: updated,
+        };
+      });
+    },
+    []
+  );
+
   // Stop active playback
   const stopPlayback = useCallback(() => {
     abortReplayRef.current = true;
     setIsPlaying(false);
     setCurrentStepIndex(-1);
-  }, []);
+    onSetKeepAwake?.(false);
+  }, [onSetKeepAwake]);
 
   // Replay macro workflow with Closed-Loop Self-Healing & Fail-Safe Recovery
   const playWorkflow = useCallback(
@@ -183,6 +259,10 @@ export function useMacroRecorder({
       abortReplayRef.current = false;
       setFailedStepId(null);
       setLastErrorMessage(null);
+
+      // Feature #7: Auto-Wake & Keep-Awake Guard on Replay Start
+      onWakeDevice?.();
+      onSetKeepAwake?.(true);
 
       let currentLoop = 0;
       const targetLoops = loopCount;
@@ -239,11 +319,77 @@ export function useMacroRecorder({
               continue;
             }
 
+            // Feature #2: Handle If / Else Conditional Branching
+            if (step.type === 'condition' && step.condition) {
+              const { conditionType, targetText, onTrue, onFalse } = step.condition;
+              onLog?.(`[If/Else Branch]: Checking if "${targetText}" is ${conditionType === 'text_present' ? 'present' : 'absent'}...`);
+
+              let exists = false;
+              if (onVerifyText) {
+                exists = await onVerifyText(targetText, 2500);
+              }
+              const isMatch = conditionType === 'text_present' ? exists : !exists;
+              onLog?.(`[If/Else Branch]: Condition is ${isMatch ? 'TRUE' : 'FALSE'}. Executing corresponding actions.`);
+
+              const branch = isMatch ? onTrue : (onFalse || []);
+              for (const bStep of branch) {
+                if (abortReplayRef.current) break;
+                if (bStep.type === 'tap' && typeof bStep.x === 'number' && typeof bStep.y === 'number') {
+                  onTriggerRipple?.(bStep.x, bStep.y);
+                  onDispatchTap(bStep.x, bStep.y);
+                } else if (bStep.type === 'key' && typeof bStep.keyCode === 'number') {
+                  onDispatchKey(bStep.keyCode);
+                } else if (bStep.type === 'text' && bStep.text) {
+                  onDispatchText(bStep.text);
+                }
+                await new Promise((r) => setTimeout(r, Math.max(50, Math.round((bStep.delayMs || 250) / speedMultiplier))));
+              }
+              continue;
+            }
+
+            // Feature #10: Handle Visual Diff Screen Regression
+            if (step.type === 'visual_diff' && step.baselineImageData) {
+              onLog?.(`[Visual Diff]: Comparing current screen with baseline image...`);
+              if (onCompareCanvas) {
+                const diffPercent = await onCompareCanvas(step.baselineImageData);
+                const threshold = step.diffThresholdPercent ?? 5;
+                if (diffPercent > threshold) {
+                  const errMsg = `Visual Diff Failed: ${diffPercent.toFixed(1)}% mismatch (threshold: ${threshold}%)`;
+                  onLog?.(`[Visual Diff Alert]: ${errMsg}`);
+                  setFailedStepId(step.id);
+                  setLastErrorMessage(errMsg);
+
+                  if (errorPolicy === 'abort_and_home') {
+                    onLog?.(`[Visual Diff Reset]: Aborting and returning Home.`);
+                    onDispatchKey(3);
+                    abortReplayRef.current = true;
+                    break;
+                  } else if (errorPolicy === 'skip') {
+                    continue;
+                  } else {
+                    abortReplayRef.current = true;
+                    break;
+                  }
+                } else {
+                  onLog?.(`[Visual Diff]: Screen verified cleanly (${(100 - diffPercent).toFixed(1)}% match).`);
+                }
+              }
+              continue;
+            }
+
             // Dispatch standard input steps
             switch (step.type) {
               case 'tap':
                 if (typeof step.x === 'number' && typeof step.y === 'number') {
-                  onDispatchTap(step.x, step.y);
+                  // Feature #8: Live Visual Touch Ripple
+                  onTriggerRipple?.(step.x, step.y);
+
+                  // Feature #9: Multi-Device Sync Macro Dispatch
+                  if (syncAllMacroDevices && onDispatchTapAll) {
+                    onDispatchTapAll(step.x / 1080, step.y / 2400);
+                  } else {
+                    onDispatchTap(step.x, step.y);
+                  }
                 }
                 break;
               case 'swipe':
@@ -253,13 +399,22 @@ export function useMacroRecorder({
                   typeof step.x2 === 'number' &&
                   typeof step.y2 === 'number'
                 ) {
-                  onDispatchSwipe(
-                    step.x1,
-                    step.y1,
-                    step.x2,
-                    step.y2,
-                    Math.round((step.duration || 150) / speedMultiplier)
-                  );
+                  const duration = Math.round((step.duration || 150) / speedMultiplier);
+                  // Feature #8: Live Visual Touch Ripple / Swipe Vector
+                  onTriggerRipple?.(step.x1, step.y1, true, step.x2, step.y2);
+
+                  // Feature #9: Multi-Device Sync Macro Dispatch
+                  if (syncAllMacroDevices && onDispatchSwipeAll) {
+                    onDispatchSwipeAll(
+                      step.x1 / 1080,
+                      step.y1 / 2400,
+                      step.x2 / 1080,
+                      step.y2 / 2400,
+                      duration
+                    );
+                  } else {
+                    onDispatchSwipe(step.x1, step.y1, step.x2, step.y2, duration);
+                  }
                 }
                 break;
               case 'key':
@@ -283,6 +438,8 @@ export function useMacroRecorder({
       } finally {
         setIsPlaying(false);
         setCurrentStepIndex(-1);
+        // Feature #7: Restore normal screen sleep timeout after macro completes
+        onSetKeepAwake?.(false);
       }
     },
     [
@@ -291,11 +448,18 @@ export function useMacroRecorder({
       loopCount,
       speedMultiplier,
       errorPolicy,
+      syncAllMacroDevices,
       onDispatchTap,
       onDispatchSwipe,
       onDispatchKey,
       onDispatchText,
       onVerifyText,
+      onCompareCanvas,
+      onTriggerRipple,
+      onWakeDevice,
+      onSetKeepAwake,
+      onDispatchTapAll,
+      onDispatchSwipeAll,
       onLog,
     ]
   );
@@ -340,6 +504,8 @@ export function useMacroRecorder({
     errorPolicy,
     failedStepId,
     lastErrorMessage,
+    syncAllMacroDevices,
+    setSyncAllMacroDevices,
     setErrorPolicy,
     setSpeedMultiplier,
     setLoopCount,
@@ -349,6 +515,8 @@ export function useMacroRecorder({
     stopPlayback,
     recordAction,
     addVisionTriggerStep,
+    addConditionStep,
+    addVisualDiffStep,
     deleteStep,
     clearSteps,
     importSteps,

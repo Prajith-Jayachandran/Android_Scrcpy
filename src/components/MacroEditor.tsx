@@ -17,8 +17,13 @@ import {
   Type,
   Eye,
   ShieldAlert,
+  Crosshair,
+  GitBranch,
+  Layers,
+  Image as ImageIcon,
+  Video,
 } from 'lucide-react';
-import { MacroStep, MacroErrorPolicy } from '@/lib/types';
+import { MacroStep, MacroErrorPolicy, MacroCondition } from '@/lib/types';
 
 interface MacroEditorProps {
   isRecording: boolean;
@@ -31,6 +36,10 @@ interface MacroEditorProps {
   errorPolicy?: MacroErrorPolicy;
   failedStepId?: string | null;
   lastErrorMessage?: string | null;
+  isInspectMode?: boolean;
+  hasMultipleDevices?: boolean;
+  syncAllMacroDevices?: boolean;
+  isRecordingClip?: boolean;
   onStartRecording: () => void;
   onStopRecording: () => void;
   onPlay: () => void;
@@ -39,6 +48,11 @@ interface MacroEditorProps {
   onSetLoop: (loop: number) => void;
   onSetErrorPolicy?: (policy: MacroErrorPolicy) => void;
   onAddVisionTrigger?: (targetText: string) => void;
+  onAddConditionStep?: (condition: MacroCondition) => void;
+  onAddVisualDiffStep?: () => void;
+  onToggleInspectMode?: () => void;
+  onToggleSyncAllMacroDevices?: () => void;
+  onCaptureInstantClip?: () => void;
   onDeleteStep: (id: string) => void;
   onClearSteps: () => void;
   onImportSteps: (steps: MacroStep[]) => void;
@@ -55,6 +69,10 @@ export const MacroEditor: React.FC<MacroEditorProps> = ({
   errorPolicy = 'abort_and_home',
   failedStepId,
   lastErrorMessage,
+  isInspectMode = false,
+  hasMultipleDevices = false,
+  syncAllMacroDevices = false,
+  isRecordingClip = false,
   onStartRecording,
   onStopRecording,
   onPlay,
@@ -63,6 +81,11 @@ export const MacroEditor: React.FC<MacroEditorProps> = ({
   onSetLoop,
   onSetErrorPolicy,
   onAddVisionTrigger,
+  onAddConditionStep,
+  onAddVisualDiffStep,
+  onToggleInspectMode,
+  onToggleSyncAllMacroDevices,
+  onCaptureInstantClip,
   onDeleteStep,
   onClearSteps,
   onImportSteps,
@@ -70,6 +93,11 @@ export const MacroEditor: React.FC<MacroEditorProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showVisionModal, setShowVisionModal] = useState(false);
   const [visionText, setVisionText] = useState('');
+
+  // Feature #2: If/Else Modal State
+  const [showIfModal, setShowIfModal] = useState(false);
+  const [conditionTarget, setConditionTarget] = useState('Allow');
+  const [conditionAction, setConditionAction] = useState<'tap_home' | 'tap_back' | 'skip'>('tap_back');
 
   const handleExportJson = () => {
     if (steps.length === 0) return;
@@ -111,6 +139,10 @@ export const MacroEditor: React.FC<MacroEditorProps> = ({
         return <Type className="w-3.5 h-3.5 text-emerald-400" />;
       case 'wait_for_text':
         return <Eye className="w-3.5 h-3.5 text-purple-400" />;
+      case 'condition':
+        return <GitBranch className="w-3.5 h-3.5 text-indigo-400" />;
+      case 'visual_diff':
+        return <ImageIcon className="w-3.5 h-3.5 text-rose-400" />;
       default:
         return <Clock className="w-3.5 h-3.5 text-slate-400" />;
     }
@@ -338,6 +370,16 @@ export const MacroEditor: React.FC<MacroEditorProps> = ({
                       Wait: &quot;{step.targetText}&quot;
                     </span>
                   )}
+                  {step.type === 'condition' && (
+                    <span className="text-[10px] font-mono text-indigo-300 truncate max-w-[110px]" title={`If "${step.condition?.targetText}" present`}>
+                      If: &quot;{step.condition?.targetText}&quot; &rarr; Branch
+                    </span>
+                  )}
+                  {step.type === 'visual_diff' && (
+                    <span className="text-[10px] font-mono text-rose-300 truncate max-w-[100px]">
+                      Diff Check (&le;{step.diffThresholdPercent || 5}%)
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-1.5">
@@ -394,8 +436,159 @@ export const MacroEditor: React.FC<MacroEditorProps> = ({
         </div>
       )}
 
+      {/* Feature #2: If / Else Branching Modal Prompt */}
+      {showIfModal && (
+        <div className="p-2.5 rounded-xl bg-indigo-950/40 border border-indigo-500/40 flex flex-col gap-2.5 text-xs">
+          <div className="flex items-center justify-between text-indigo-200 font-semibold">
+            <span className="flex items-center gap-1.5">
+              <GitBranch className="w-3.5 h-3.5 text-indigo-400" />
+              <span>If / Else Popup Recovery Branch</span>
+            </span>
+            <button
+              onClick={() => setShowIfModal(false)}
+              className="text-slate-400 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] text-slate-400">If on-screen text matches:</span>
+            <input
+              type="text"
+              placeholder='e.g. "Allow", "Update", "Later", "Cancel"'
+              value={conditionTarget}
+              onChange={(e) => setConditionTarget(e.target.value)}
+              className="w-full px-2.5 py-1 rounded-lg bg-black/60 border border-white/10 text-white text-xs placeholder:text-slate-500 focus:outline-none focus:border-indigo-400"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] text-slate-400">Then execute auto-recovery action:</span>
+            <select
+              value={conditionAction}
+              onChange={(e) => setConditionAction(e.target.value as any)}
+              className="w-full px-2 py-1 rounded-lg bg-slate-900 border border-white/10 text-slate-200 text-xs focus:outline-none focus:border-indigo-400"
+            >
+              <option value="tap_back">Dismiss via Back Button (KEYCODE_BACK)</option>
+              <option value="tap_home">Reset to Home Screen (KEYCODE_HOME)</option>
+              <option value="skip">Ignore &amp; Proceed</option>
+            </select>
+          </div>
+          <button
+            onClick={() => {
+              if (conditionTarget.trim() && onAddConditionStep) {
+                const onTrueSteps: MacroStep[] = [];
+                if (conditionAction === 'tap_back') {
+                  onTrueSteps.push({
+                    id: Math.random().toString(36).substring(2, 9),
+                    delayMs: 200,
+                    type: 'key',
+                    keyCode: 4,
+                  });
+                } else if (conditionAction === 'tap_home') {
+                  onTrueSteps.push({
+                    id: Math.random().toString(36).substring(2, 9),
+                    delayMs: 200,
+                    type: 'key',
+                    keyCode: 3,
+                  });
+                }
+                onAddConditionStep({
+                  conditionType: 'text_present',
+                  targetText: conditionTarget.trim(),
+                  onTrue: onTrueSteps,
+                });
+                setShowIfModal(false);
+              }
+            }}
+            className="w-full py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-semibold text-xs transition-all shadow"
+          >
+            Insert If/Else Branch
+          </button>
+        </div>
+      )}
+
+      {/* Advanced Automation Actions Bar */}
+      <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 border-t border-white/10 text-[11px]">
+        {/* Feature #1: Point-and-Click Inspector HUD Toggle */}
+        {onToggleInspectMode && (
+          <button
+            type="button"
+            onClick={onToggleInspectMode}
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg font-semibold transition-all border whitespace-nowrap ${
+              isInspectMode
+                ? 'bg-cyan-500/30 text-cyan-200 border-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.4)] animate-pulse'
+                : 'bg-white/5 text-slate-300 hover:text-white border-white/10'
+            }`}
+            title="Inspect Mode: Click screen to auto-create tap coordinate"
+          >
+            <Crosshair className="w-3 h-3 text-cyan-400" />
+            <span>{isInspectMode ? 'Inspect: ON' : 'Inspect HUD'}</span>
+          </button>
+        )}
+
+        {/* Feature #2: If/Else Branching */}
+        {onAddConditionStep && (
+          <button
+            type="button"
+            onClick={() => setShowIfModal(!showIfModal)}
+            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 transition-all whitespace-nowrap"
+            title="Add If/Else Branching step"
+          >
+            <GitBranch className="w-3 h-3 text-indigo-400" />
+            <span>+ If/Else</span>
+          </button>
+        )}
+
+        {/* Feature #10: Visual Diff Snapshot Step */}
+        {onAddVisualDiffStep && (
+          <button
+            type="button"
+            onClick={onAddVisualDiffStep}
+            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 transition-all whitespace-nowrap"
+            title="Add Visual Diff Baseline Check"
+          >
+            <ImageIcon className="w-3 h-3 text-rose-400" />
+            <span>+ Diff Step</span>
+          </button>
+        )}
+
+        {/* Feature #9: Multi-Device Sync Macro Toggle */}
+        {hasMultipleDevices && onToggleSyncAllMacroDevices && (
+          <button
+            type="button"
+            onClick={onToggleSyncAllMacroDevices}
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg font-semibold transition-all border whitespace-nowrap ${
+              syncAllMacroDevices
+                ? 'bg-amber-500/30 text-amber-200 border-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.4)] animate-pulse'
+                : 'bg-white/5 text-slate-400 hover:text-white border-white/10'
+            }`}
+            title="Execute Macro Workflow Synchronously Across All Connected Phones"
+          >
+            <Layers className="w-3 h-3 text-amber-400" />
+            <span>{syncAllMacroDevices ? 'Sync All: ON' : 'Sync All'}</span>
+          </button>
+        )}
+
+        {/* Feature #3: Instant Screen-to-GIF / Clip */}
+        {onCaptureInstantClip && (
+          <button
+            type="button"
+            onClick={onCaptureInstantClip}
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg font-semibold transition-all border whitespace-nowrap ml-auto ${
+              isRecordingClip
+                ? 'bg-rose-600 text-white border-rose-400 animate-pulse shadow-md'
+                : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border-emerald-500/30'
+            }`}
+            title="Record 5s Video Clip / GIF"
+          >
+            <Video className="w-3 h-3" />
+            <span>{isRecordingClip ? 'Recording...' : 'Instant Clip'}</span>
+          </button>
+        )}
+      </div>
+
       {/* Export / Import & Vision Add Bar */}
-      <div className="flex items-center justify-between pt-2 border-t border-white/10 text-xs">
+      <div className="flex items-center justify-between pt-1 border-t border-white/10 text-xs">
         <div className="flex gap-1.5">
           <button
             onClick={handleExportJson}

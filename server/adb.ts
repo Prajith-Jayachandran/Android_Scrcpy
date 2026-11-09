@@ -663,4 +663,58 @@ export class AdbManager {
       );
     });
   }
+
+  // --------------------------------------------------------------------------
+  // Feature #6: Hardware State Mocking (Battery & Airplane Mode)
+  // --------------------------------------------------------------------------
+  public async setBatteryMock(deviceId: string, level: number, unplug: boolean): Promise<boolean> {
+    return new Promise((resolve) => {
+      const clampedLevel = Math.max(0, Math.min(100, Math.round(level)));
+      const cmd = unplug
+        ? `cmd battery unplug; cmd battery set level ${clampedLevel}`
+        : `cmd battery set level ${clampedLevel}; cmd battery set ac 1`;
+      execFile(this.adbPath, ['-s', deviceId, 'shell', cmd], (err) => {
+        resolve(!err);
+      });
+    });
+  }
+
+  public async resetBatteryMock(deviceId: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      execFile(this.adbPath, ['-s', deviceId, 'shell', 'cmd battery reset'], (err) => {
+        resolve(!err);
+      });
+    });
+  }
+
+  public async setAirplaneMode(deviceId: string, enabled: boolean): Promise<boolean> {
+    return new Promise((resolve) => {
+      const mode = enabled ? 'enable' : 'disable';
+      execFile(this.adbPath, ['-s', deviceId, 'shell', `cmd connectivity airplane-mode ${mode}`], (err) => {
+        resolve(!err);
+      });
+    });
+  }
+
+  // --------------------------------------------------------------------------
+  // Feature #7: Auto-Wake, Unlock & Keep-Awake Guard
+  // --------------------------------------------------------------------------
+  public async autoWakeAndUnlock(deviceId: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      // Wake up screen (224), wait 150ms, swipe up from bottom center to unlock keyguard
+      const cmd = 'input keyevent 224; sleep 0.15; input swipe 540 1800 540 600 200 2>/dev/null || true';
+      execFile(this.adbPath, ['-s', deviceId, 'shell', cmd], (err) => {
+        resolve(!err);
+      });
+    });
+  }
+
+  public async setKeepAwake(deviceId: string, stayAwake: boolean): Promise<boolean> {
+    return new Promise((resolve) => {
+      const val = stayAwake ? 'true' : 'false';
+      execFile(this.adbPath, ['-s', deviceId, 'shell', `svc power stayon ${val} 2>/dev/null || true`], (err) => {
+        resolve(!err);
+      });
+    });
+  }
 }

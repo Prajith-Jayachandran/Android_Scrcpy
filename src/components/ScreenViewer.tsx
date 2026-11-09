@@ -1,7 +1,17 @@
 'use client';
 
 import React, { useRef, useState, useEffect } from 'react';
-import { Smartphone, Sparkles, UploadCloud, FileCheck, AlertCircle, PackageCheck, Loader2 } from 'lucide-react';
+import {
+  Smartphone,
+  Sparkles,
+  UploadCloud,
+  FileCheck,
+  AlertCircle,
+  PackageCheck,
+  Loader2,
+  Crosshair,
+  Layers,
+} from 'lucide-react';
 import { StreamMeta } from '../lib/types';
 import { GamepadOverlay } from './GamepadOverlay';
 
@@ -15,6 +25,10 @@ interface ScreenViewerProps {
   isCompact?: boolean;
   isGameActive?: boolean;
   activePackage?: string;
+  isInspectMode?: boolean;
+  hasMultipleDevices?: boolean;
+  externalRipple?: { x: number; y: number; isSwipe?: boolean; x2?: number; y2?: number; id: number } | null;
+  onInspectCoordinate?: (x: number, y: number, relX: number, relY: number) => void;
   onTap: (x: number, y: number, relX?: number, relY?: number) => void;
   onSwipe: (
     x1: number,
@@ -43,6 +57,10 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
   isCompact = false,
   isGameActive = false,
   activePackage,
+  isInspectMode = false,
+  hasMultipleDevices = false,
+  externalRipple,
+  onInspectCoordinate,
   onTap,
   onSwipe,
   onSendKey,
@@ -80,6 +98,46 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
 
   const metaRef = useRef(meta);
   metaRef.current = meta;
+
+  // Feature #8: Live Visual Touch Ripples & Swipe Vectors
+  interface VisualRipple {
+    id: number;
+    relX: number;
+    relY: number;
+    isSwipe?: boolean;
+    relX2?: number;
+    relY2?: number;
+  }
+  const [ripples, setRipples] = useState<VisualRipple[]>([]);
+
+  const addRipple = (relX: number, relY: number, isSwipe = false, relX2 = relX, relY2 = relY) => {
+    const id = Date.now() + Math.random();
+    setRipples((prev) => [...prev.slice(-6), { id, relX, relY, isSwipe, relX2, relY2 }]);
+    setTimeout(() => {
+      setRipples((prev) => prev.filter((r) => r.id !== id));
+    }, 600);
+  };
+
+  useEffect(() => {
+    if (externalRipple) {
+      const currentMeta = metaRef.current;
+      const targetW = currentMeta?.physicalWidth || currentMeta?.width || 1080;
+      const targetH = currentMeta?.physicalHeight || currentMeta?.height || 2373;
+      addRipple(
+        externalRipple.x / targetW,
+        externalRipple.y / targetH,
+        externalRipple.isSwipe,
+        externalRipple.x2 !== undefined ? externalRipple.x2 / targetW : undefined,
+        externalRipple.y2 !== undefined ? externalRipple.y2 / targetH : undefined
+      );
+    }
+  }, [externalRipple]);
+
+  // Feature #1: Point-and-Click Step Inspector State
+  const [inspectCoords, setInspectCoords] = useState<{ x: number; y: number; relX: number; relY: number } | null>(null);
+
+  // Feature #5: Multi-Device Broadcast Drop Target Selection ('active' | 'all')
+  const [dropTargetMode, setDropTargetMode] = useState<'active' | 'all'>('active');
 
   const lastWheelTimeRef = useRef<number>(0);
   const wheelAccumulatorRef = useRef<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
@@ -183,6 +241,14 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!isStreaming) return;
 
+    // Feature #1: Point-and-Click Inspector Mode
+    if (isInspectMode) {
+      const coords = mapCoordinates(e.clientX, e.clientY);
+      addRipple(coords.relX, coords.relY);
+      onInspectCoordinate?.(coords.x, coords.y, coords.relX, coords.relY);
+      return;
+    }
+
     // Right Click -> Back
     if (e.button === 2) {
       onSendKey(4);
@@ -211,12 +277,19 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isStreaming || !dragStartRef.current) return;
+    if (!isStreaming) return;
+
+    if (isInspectMode) {
+      setInspectCoords(mapCoordinates(e.clientX, e.clientY));
+      return;
+    }
+
+    if (!dragStartRef.current) return;
     lastCoordsRef.current = mapCoordinates(e.clientX, e.clientY);
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isStreaming || !dragStartRef.current) return;
+    if (isInspectMode || !isStreaming || !dragStartRef.current) return;
 
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
@@ -231,9 +304,11 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
 
     // Deadzone: under 30 physical pixels is a clean TAP.
     if (distance < 30) {
+      addRipple(start.relX, start.relY);
       onTap(start.x, start.y, start.relX, start.relY);
     } else {
       // Clean 150ms swipe gesture recognized by Android WindowManager as a fast scroll fling
+      addRipple(start.relX, start.relY, true, end.relX, end.relY);
       onSwipe(start.x, start.y, end.x, end.y, 150, start.relX, start.relY, end.relX, end.relY);
     }
 
@@ -298,7 +373,8 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
     try {
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('deviceId', activeDeviceId);
+      const targetDevId = dropTargetMode === 'all' && hasMultipleDevices ? 'all' : activeDeviceId;
+      formData.append('deviceId', targetDevId);
 
       const resp = await fetch('/api/upload', {
         method: 'POST',
@@ -309,8 +385,8 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
       if (res.success) {
         setUploadStatus(
           isApk
-            ? `✔ Installed & Launched ${file.name}!`
-            : `✔ Pushed ${file.name} to /sdcard/Download/`
+            ? `✔ Installed & Launched on ${targetDevId === 'all' ? 'ALL devices' : activeDeviceId}!`
+            : `✔ Pushed ${file.name} to Download/`
         );
         onNotifyLog?.(res.message);
       } else {
@@ -427,9 +503,78 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
             onClose={() => onCloseGamepad?.()}
           />
 
-          {/* Feature #2: Drag & Drop Sideloading Target Overlay */}
+          {/* Feature #8: Live Visual Touch Ripples & Heatmap Vectors Overlay */}
+          <div className="absolute inset-0 pointer-events-none z-30 overflow-hidden">
+            {ripples.map((rip) => (
+              <div
+                key={rip.id}
+                className="absolute"
+                style={{
+                  left: `${rip.relX * 100}%`,
+                  top: `${rip.relY * 100}%`,
+                  transform: 'translate(-50%, -50%)',
+                }}
+              >
+                {rip.isSwipe && rip.relX2 !== undefined && rip.relY2 !== undefined ? (
+                  <svg
+                    className="overflow-visible pointer-events-none"
+                    style={{ position: 'absolute', left: 0, top: 0 }}
+                  >
+                    <line
+                      x1="0"
+                      y1="0"
+                      x2={`${(rip.relX2 - rip.relX) * 250}px`}
+                      y2={`${(rip.relY2 - rip.relY) * 550}px`}
+                      stroke="rgba(99, 102, 241, 0.9)"
+                      strokeWidth="4"
+                      strokeLinecap="round"
+                      strokeDasharray="6 3"
+                    />
+                    <circle cx="0" cy="0" r="7" fill="rgba(99, 102, 241, 0.7)" className="animate-ping" />
+                  </svg>
+                ) : (
+                  <div className="relative flex items-center justify-center">
+                    <span className="w-9 h-9 rounded-full bg-cyan-400/40 border-2 border-cyan-300 shadow-[0_0_20px_#22d3ee] animate-ping" />
+                    <span className="absolute w-2.5 h-2.5 rounded-full bg-cyan-200 shadow-md shadow-cyan-400" />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Feature #1: Point-and-Click Step Inspector HUD Overlay */}
+          {isInspectMode && (
+            <div className="absolute inset-0 pointer-events-none z-30 border-2 border-dashed border-cyan-400/80 shadow-[inset_0_0_25px_rgba(34,211,238,0.25)]">
+              {inspectCoords && (
+                <>
+                  <div
+                    className="absolute top-0 bottom-0 w-[1px] bg-cyan-400/80 shadow-[0_0_8px_#22d3ee]"
+                    style={{ left: `${inspectCoords.relX * 100}%` }}
+                  />
+                  <div
+                    className="absolute left-0 right-0 h-[1px] bg-cyan-400/80 shadow-[0_0_8px_#22d3ee]"
+                    style={{ top: `${inspectCoords.relY * 100}%` }}
+                  />
+                  <div
+                    className="absolute px-2.5 py-1 rounded-lg bg-slate-950/90 border border-cyan-400 text-[10px] font-mono text-cyan-200 shadow-2xl backdrop-blur-md flex items-center gap-1.5"
+                    style={{
+                      left: `${Math.min(70, Math.max(5, inspectCoords.relX * 100))}%`,
+                      top: `${Math.max(4, Math.min(88, inspectCoords.relY * 100 - 6))}%`,
+                    }}
+                  >
+                    <Crosshair className="w-3 h-3 text-cyan-400 animate-spin" />
+                    <span>
+                      ({inspectCoords.x}, {inspectCoords.y})
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Feature #2 & #5: Drag & Drop Sideloading Target Overlay */}
           {isDragOver && (
-            <div className="absolute inset-0 z-40 bg-indigo-950/85 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center border-4 border-dashed border-indigo-400 rounded-[2.6rem] animate-in fade-in duration-150">
+            <div className="absolute inset-0 z-40 bg-indigo-950/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center border-4 border-dashed border-indigo-400 rounded-[2.6rem] animate-in fade-in duration-150">
               <div className="w-16 h-16 rounded-2xl bg-indigo-500/30 border border-indigo-400/50 flex items-center justify-center text-indigo-300 mb-3 shadow-[0_0_30px_rgba(99,102,241,0.5)] animate-bounce">
                 <UploadCloud className="w-9 h-9" />
               </div>
@@ -441,6 +586,41 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
                 <br />
                 • <strong className="text-white">Media/Files</strong>: Push to /sdcard/Download/
               </p>
+
+              {/* Feature #5: Multi-Device Broadcast Target Toggle */}
+              {hasMultipleDevices && (
+                <div className="mt-4 flex items-center gap-2 pointer-events-auto bg-black/60 p-1.5 rounded-xl border border-white/10">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDropTargetMode('active');
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all ${
+                      dropTargetMode === 'active'
+                        ? 'bg-indigo-600 text-white shadow'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Active Phone Only
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDropTargetMode('all');
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold transition-all flex items-center gap-1 ${
+                      dropTargetMode === 'all'
+                        ? 'bg-amber-600 text-white shadow animate-pulse'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Layers className="w-3 h-3" />
+                    <span>Broadcast to ALL Phones</span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

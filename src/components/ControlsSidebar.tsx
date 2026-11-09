@@ -14,32 +14,54 @@ import {
   Clipboard,
   Gamepad2,
   Eye,
-  EyeOff
+  EyeOff,
+  Battery,
+  BatteryCharging,
+  Plane,
+  RotateCcw,
+  Sliders,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
+import { HardwareMockState } from '@/lib/types';
 
 interface ControlsSidebarProps {
   isStreaming: boolean;
   isGameActive?: boolean;
   privacyMode?: boolean;
+  hardwareMockState?: HardwareMockState;
   onSendKey: (keyCode: number) => void;
   onSendText: (text: string) => void;
   onClipboardPaste?: (text: string) => void;
   onToggleGamepad?: () => void;
   onTogglePrivacy?: () => void;
+  onSetBatteryMock?: (level: number, unplug: boolean) => void;
+  onResetBatteryMock?: () => void;
+  onSetAirplaneMode?: (enabled: boolean) => void;
 }
 
 export const ControlsSidebar: React.FC<ControlsSidebarProps> = ({
   isStreaming,
   isGameActive = false,
   privacyMode = false,
+  hardwareMockState,
   onSendKey,
   onSendText,
   onClipboardPaste,
   onToggleGamepad,
   onTogglePrivacy,
+  onSetBatteryMock,
+  onResetBatteryMock,
+  onSetAirplaneMode,
 }) => {
   const [inputText, setInputText] = useState('');
   const [clipboardToast, setClipboardToast] = useState(false);
+  
+  // Feature #6: Hardware State Mocking State
+  const [showHardwareMocks, setShowHardwareMocks] = useState(false);
+  const [mockBatteryLevel, setMockBatteryLevel] = useState<number>(hardwareMockState?.batteryLevel ?? 50);
+  const [mockIsUnplugged, setMockIsUnplugged] = useState<boolean>(hardwareMockState?.isUnplugged ?? true);
+  const [mockAirplane, setMockAirplane] = useState<boolean>(hardwareMockState?.airplaneMode ?? false);
 
   const handleSendText = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -185,6 +207,119 @@ export const ControlsSidebar: React.FC<ControlsSidebarProps> = ({
           <Sparkles className="w-3 h-3 text-indigo-400" />
           <span>Or focus phone screen and type directly on physical keyboard.</span>
         </p>
+      </div>
+
+      {/* Feature #6: Hardware State Mocking (Battery & Airplane Mode) */}
+      <div className="pt-2 border-t border-slate-800/80">
+        <div
+          className="flex items-center justify-between cursor-pointer select-none mb-2"
+          onClick={() => setShowHardwareMocks((prev) => !prev)}
+        >
+          <div className="flex items-center gap-1.5">
+            <Sliders className="w-3.5 h-3.5 text-amber-400" />
+            <h3 className="text-xs font-bold tracking-wider uppercase text-slate-200">
+              Hardware State Mocks
+            </h3>
+          </div>
+          <button
+            type="button"
+            className="p-1 rounded text-slate-400 hover:text-white transition-colors"
+          >
+            {showHardwareMocks ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+
+        {showHardwareMocks && (
+          <div className="flex flex-col gap-3 p-3 rounded-xl bg-slate-950/60 border border-white/5 text-xs">
+            {/* Battery Level Slider */}
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-1.5 text-slate-300 font-semibold text-[11px]">
+                  <Battery className="w-3.5 h-3.5 text-amber-400" />
+                  Battery Level:
+                </span>
+                <span className="font-mono font-bold text-amber-300 text-[11px]">
+                  {mockBatteryLevel}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min="1"
+                max="100"
+                value={mockBatteryLevel}
+                disabled={!isStreaming}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value, 10);
+                  setMockBatteryLevel(val);
+                  onSetBatteryMock?.(val, mockIsUnplugged);
+                }}
+                className="w-full accent-amber-500 cursor-pointer disabled:opacity-40"
+              />
+            </div>
+
+            {/* Power Source & Airplane Mode Toggles */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={!isStreaming}
+                onClick={() => {
+                  const nextState = !mockIsUnplugged;
+                  setMockIsUnplugged(nextState);
+                  onSetBatteryMock?.(mockBatteryLevel, nextState);
+                }}
+                className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg font-medium text-[10px] transition-all border disabled:opacity-40 ${
+                  mockIsUnplugged
+                    ? 'bg-amber-500/20 text-amber-200 border-amber-500/40'
+                    : 'bg-emerald-500/20 text-emerald-200 border-emerald-500/40'
+                }`}
+                title={mockIsUnplugged ? 'Mocking on Battery (Unplugged)' : 'Mocking AC/USB Charging'}
+              >
+                {mockIsUnplugged ? (
+                  <Battery className="w-3 h-3 text-amber-400" />
+                ) : (
+                  <BatteryCharging className="w-3 h-3 text-emerald-400" />
+                )}
+                <span>{mockIsUnplugged ? 'Unplugged' : 'AC Charging'}</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={!isStreaming}
+                onClick={() => {
+                  const nextState = !mockAirplane;
+                  setMockAirplane(nextState);
+                  onSetAirplaneMode?.(nextState);
+                }}
+                className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg font-medium text-[10px] transition-all border disabled:opacity-40 ${
+                  mockAirplane
+                    ? 'bg-cyan-500/25 text-cyan-200 border-cyan-400/50 shadow-[0_0_10px_rgba(6,182,212,0.3)]'
+                    : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10'
+                }`}
+                title="Toggle Airplane Mode (Disable/Enable Radio)"
+              >
+                <Plane className="w-3 h-3 text-cyan-400" />
+                <span>{mockAirplane ? 'Airplane ON' : 'Airplane OFF'}</span>
+              </button>
+            </div>
+
+            {/* Reset to Real Hardware */}
+            <button
+              type="button"
+              disabled={!isStreaming}
+              onClick={() => {
+                onResetBatteryMock?.();
+                onSetAirplaneMode?.(false);
+                setMockAirplane(false);
+                setMockIsUnplugged(false);
+              }}
+              className="flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white font-semibold text-[10px] transition-all border border-white/10 disabled:opacity-40"
+              title="Reset battery and network overrides back to physical hardware defaults"
+            >
+              <RotateCcw className="w-3 h-3 text-slate-400" />
+              <span>Reset to Physical Hardware</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Quick Utilities: Gamepad HUD, Privacy Mode, Snapshot */}

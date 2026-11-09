@@ -17,7 +17,9 @@ import { usePictureInPicture } from '@/hooks/usePictureInPicture';
 import { useDeviceAudio } from '@/hooks/useDeviceAudio';
 import { useAdaptiveBitrate } from '@/hooks/useAdaptiveBitrate';
 import { useSecurityShield } from '@/hooks/useSecurityShield';
-import { DeviceInfo, StreamMeta, LogMessage } from '@/lib/types';
+import { QuickFillVault } from '@/components/QuickFillVault';
+import { screenRecorder } from '@/lib/screenRecorder';
+import { DeviceInfo, StreamMeta, LogMessage, HardwareMockState, MacroCondition } from '@/lib/types';
 import { Cast } from 'lucide-react';
 
 export default function Home() {
@@ -37,6 +39,29 @@ export default function Home() {
   const [deviceMetas, setDeviceMetas] = useState<Record<string, StreamMeta>>({});
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [logs, setLogs] = useState<LogMessage[]>([]);
+
+  // Feature #6: Hardware State Mocking
+  const [hardwareMockState, setHardwareMockState] = useState<HardwareMockState>({
+    batteryLevel: 100,
+    isUnplugged: false,
+    airplaneMode: false,
+  });
+
+  // Feature #1: Point-and-Click Inspector HUD
+  const [isInspectMode, setIsInspectMode] = useState<boolean>(false);
+
+  // Feature #8: Live Visual Touch Ripples & Heatmap Vectors
+  const [activeRipple, setActiveRipple] = useState<{
+    x: number;
+    y: number;
+    isSwipe?: boolean;
+    x2?: number;
+    y2?: number;
+    id: number;
+  } | null>(null);
+
+  // Feature #3: Instant Screen-to-GIF / Clip Recorder State
+  const [isRecordingClip, setIsRecordingClip] = useState<boolean>(false);
 
   // Feature #4: Multi-Device Parallel View Modes ('tabs' or 'split')
   const [viewMode, setViewMode] = useState<'tabs' | 'split'>('tabs');
@@ -217,7 +242,64 @@ export default function Home() {
     onLog: addLog,
   });
 
-  // Feature #8: Macro Recorder Hook with Self-Healing Vision Guard
+  // Feature #7: Auto-Wake & Keep-Awake Guard WebSocket Dispatches
+  const handleAutoWakeDevice = useCallback(() => {
+    if (!wsRef.current || !selectedDeviceId) return;
+    wsRef.current.send(JSON.stringify({ type: 'auto-wake-device', deviceId: selectedDeviceId }));
+  }, [selectedDeviceId]);
+
+  const handleSetKeepAwake = useCallback(
+    (stayAwake: boolean) => {
+      if (!wsRef.current || !selectedDeviceId) return;
+      wsRef.current.send(JSON.stringify({ type: 'set-keep-awake', deviceId: selectedDeviceId, stayAwake }));
+    },
+    [selectedDeviceId]
+  );
+
+  // Feature #10: Visual Diff Screen Comparator
+  const handleCompareCanvas = useCallback(async (baselineDataUrl?: string) => {
+    const canvas = selectedCanvasRef.current;
+    if (!canvas || !baselineDataUrl) return 0;
+    return await screenRecorder.compareCanvas(canvas, baselineDataUrl);
+  }, []);
+
+  // Feature #9: Proportional Multi-Device Macro Dispatches
+  const handleDispatchTapAll = useCallback(
+    (normX: number, normY: number) => {
+      devices.forEach((d) => {
+        const meta = deviceMetas[d.id];
+        const targetW = meta?.physicalWidth || meta?.width || 1080;
+        const targetH = meta?.physicalHeight || meta?.height || 2373;
+        rawTap(d.id, Math.round(normX * targetW), Math.round(normY * targetH), normX, normY);
+      });
+    },
+    [devices, deviceMetas, rawTap]
+  );
+
+  const handleDispatchSwipeAll = useCallback(
+    (normX1: number, normY1: number, normX2: number, normY2: number, duration: number) => {
+      devices.forEach((d) => {
+        const meta = deviceMetas[d.id];
+        const targetW = meta?.physicalWidth || meta?.width || 1080;
+        const targetH = meta?.physicalHeight || meta?.height || 2373;
+        rawSwipe(
+          d.id,
+          Math.round(normX1 * targetW),
+          Math.round(normY1 * targetH),
+          Math.round(normX2 * targetW),
+          Math.round(normY2 * targetH),
+          duration,
+          normX1,
+          normY1,
+          normX2,
+          normY2
+        );
+      });
+    },
+    [devices, deviceMetas, rawSwipe]
+  );
+
+  // Feature #8: Macro Recorder Hook with Self-Healing Vision Guard, Auto-Wake, Ripples & Sync
   const macroRecorder = useMacroRecorder({
     deviceId: selectedDeviceId,
     onDispatchTap: (x, y) => rawTap(selectedDeviceId, x, y),
@@ -225,8 +307,117 @@ export default function Home() {
     onDispatchKey: (code) => rawSendKey(selectedDeviceId, code),
     onDispatchText: (text) => rawSendText(selectedDeviceId, text),
     onVerifyText: ocr.waitForTextOnCanvas,
+    onCompareCanvas: handleCompareCanvas,
+    onTriggerRipple: (x, y, isSwipe, x2, y2) =>
+      setActiveRipple({ x, y, isSwipe, x2, y2, id: Date.now() }),
+    onWakeDevice: handleAutoWakeDevice,
+    onSetKeepAwake: handleSetKeepAwake,
+    onDispatchTapAll: handleDispatchTapAll,
+    onDispatchSwipeAll: handleDispatchSwipeAll,
     onLog: addLog,
   });
+
+  // Feature #1: Point-and-Click Inspector Coordinate Receiver
+  const handleInspectCoordinate = useCallback(
+    (x: number, y: number, relX: number, relY: number) => {
+      macroRecorder.recordAction({
+        type: 'tap',
+        x,
+        y,
+      });
+      addLog(
+        `[Inspector HUD]: Auto-created Tap step at (${x}, ${y}) [${Math.round(relX * 100)}%, ${Math.round(
+          relY * 100
+        )}%]`
+      );
+    },
+    [macroRecorder, addLog]
+  );
+
+  // Feature #10: Capture Visual Diff Baseline
+  const handleAddVisualDiffStep = useCallback(() => {
+    const canvas = selectedCanvasRef.current;
+    if (!canvas || !isStreaming) {
+      addLog('[Visual Diff]: Mirror must be streaming to capture baseline snapshot.');
+      return;
+    }
+    const snapshot = screenRecorder.captureSnapshot(canvas);
+    if (snapshot) {
+      macroRecorder.addVisualDiffStep(snapshot, 5);
+      addLog('✔ Visual Diff baseline snapshot captured and added to macro workflow.');
+    }
+  }, [macroRecorder, isStreaming, addLog]);
+
+  // Feature #3: Instant Screen-to-GIF / Clip Recorder
+  const handleCaptureInstantClip = useCallback(async () => {
+    const canvas = selectedCanvasRef.current;
+    if (!canvas || !isStreaming) {
+      addLog('[Recorder]: Screen mirror must be active to record a clip.');
+      return;
+    }
+    if (isRecordingClip) {
+      const result = await screenRecorder.stopRecording();
+      setIsRecordingClip(false);
+      if (result) {
+        screenRecorder.downloadClip(result);
+        addLog(`✔ Saved video clip: ${result.filename}`);
+      }
+    } else {
+      const started = screenRecorder.startRecording(canvas);
+      if (started) {
+        setIsRecordingClip(true);
+        addLog('📹 Recording 5-second screen clip...');
+        setTimeout(async () => {
+          const result = await screenRecorder.stopRecording();
+          setIsRecordingClip(false);
+          if (result) {
+            screenRecorder.downloadClip(result);
+            addLog(`✔ Auto-downloaded 5s clip: ${result.filename}`);
+          }
+        }, 5000);
+      }
+    }
+  }, [isStreaming, isRecordingClip, addLog]);
+
+  // Feature #6: Hardware State Mocking Handlers
+  const handleSetBatteryMock = useCallback(
+    (level: number, unplug: boolean) => {
+      if (!wsRef.current || !selectedDeviceId) return;
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'set-battery-mock',
+          deviceId: selectedDeviceId,
+          level,
+          unplug,
+        })
+      );
+    },
+    [selectedDeviceId]
+  );
+
+  const handleResetBatteryMock = useCallback(() => {
+    if (!wsRef.current || !selectedDeviceId) return;
+    wsRef.current.send(
+      JSON.stringify({
+        type: 'reset-battery-mock',
+        deviceId: selectedDeviceId,
+      })
+    );
+  }, [selectedDeviceId]);
+
+  const handleSetAirplaneMode = useCallback(
+    (enabled: boolean) => {
+      if (!wsRef.current || !selectedDeviceId) return;
+      wsRef.current.send(
+        JSON.stringify({
+          type: 'set-airplane-mode',
+          deviceId: selectedDeviceId,
+          enabled,
+        })
+      );
+    },
+    [selectedDeviceId]
+  );
 
   // Feature: Document Picture-in-Picture Pop-out Mode
   const pip = usePictureInPicture({
@@ -496,6 +687,37 @@ export default function Home() {
           case 'privacy-mode-status': {
             if (msg.deviceId === selectedDeviceIdRef.current) {
               setPrivacyMode(msg.enabled);
+            }
+            break;
+          }
+
+          case 'hardware-mock-updated': {
+            if (msg.deviceId === selectedDeviceIdRef.current) {
+              setHardwareMockState((prev) => ({
+                ...prev,
+                batteryLevel: msg.batteryLevel ?? prev.batteryLevel,
+                isUnplugged: msg.isUnplugged ?? prev.isUnplugged,
+              }));
+              addLog(`[Hardware Mock]: Battery set to ${msg.batteryLevel}% (${msg.isUnplugged ? 'Unplugged' : 'Charging'})`);
+            }
+            break;
+          }
+
+          case 'hardware-mock-reset': {
+            if (msg.deviceId === selectedDeviceIdRef.current) {
+              setHardwareMockState({ batteryLevel: 100, isUnplugged: false, airplaneMode: false });
+              addLog(`[Hardware Mock]: Hardware overrides reset to physical.`);
+            }
+            break;
+          }
+
+          case 'airplane-mode-updated': {
+            if (msg.deviceId === selectedDeviceIdRef.current) {
+              setHardwareMockState((prev) => ({
+                ...prev,
+                airplaneMode: msg.airplaneMode ?? prev.airplaneMode,
+              }));
+              addLog(`[Hardware Mock]: Airplane mode ${msg.airplaneMode ? 'ENABLED' : 'DISABLED'}`);
             }
             break;
           }
@@ -885,6 +1107,10 @@ export default function Home() {
           errorPolicy={macroRecorder.errorPolicy}
           failedStepId={macroRecorder.failedStepId}
           lastErrorMessage={macroRecorder.lastErrorMessage}
+          isInspectMode={isInspectMode}
+          hasMultipleDevices={devices.length > 1}
+          syncAllMacroDevices={macroRecorder.syncAllMacroDevices}
+          isRecordingClip={isRecordingClip}
           onStartRecording={macroRecorder.startRecording}
           onStopRecording={macroRecorder.stopRecording}
           onPlay={() => macroRecorder.playWorkflow()}
@@ -893,9 +1119,20 @@ export default function Home() {
           onSetLoop={macroRecorder.setLoopCount}
           onSetErrorPolicy={macroRecorder.setErrorPolicy}
           onAddVisionTrigger={macroRecorder.addVisionTriggerStep}
+          onAddConditionStep={macroRecorder.addConditionStep}
+          onAddVisualDiffStep={handleAddVisualDiffStep}
+          onToggleInspectMode={() => setIsInspectMode((prev) => !prev)}
+          onToggleSyncAllMacroDevices={() => macroRecorder.setSyncAllMacroDevices((prev) => !prev)}
+          onCaptureInstantClip={handleCaptureInstantClip}
           onDeleteStep={macroRecorder.deleteStep}
           onClearSteps={macroRecorder.clearSteps}
           onImportSteps={macroRecorder.importSteps}
+        />
+
+        {/* Feature #4: Developer Quick-Fill Vault (Mock Data & Snippets Drawer) */}
+        <QuickFillVault
+          onInjectText={(text) => rawSendText(selectedDeviceId, text)}
+          isStreaming={isStreaming}
         />
       </aside>
 
@@ -953,6 +1190,10 @@ export default function Home() {
                       meta={deviceMetas[device.id] || null}
                       isGameActive={isSelected && isGameActive}
                       activePackage={activePackage}
+                      isInspectMode={isSelected && isInspectMode}
+                      hasMultipleDevices={devices.length > 1}
+                      externalRipple={isSelected ? activeRipple : null}
+                      onInspectCoordinate={handleInspectCoordinate}
                       onTap={(x, y, rx, ry) => handleTapForDevice(device.id, x, y, rx, ry)}
                       onSwipe={(x1, y1, x2, y2, d, nx1, ny1, nx2, ny2) =>
                         handleSwipeForDevice(device.id, x1, y1, x2, y2, d, nx1, ny1, nx2, ny2)
@@ -987,6 +1228,10 @@ export default function Home() {
                       meta={deviceMetas[device.id] || null}
                       isGameActive={isSelected && isGameActive}
                       activePackage={activePackage}
+                      isInspectMode={isSelected && isInspectMode}
+                      hasMultipleDevices={devices.length > 1}
+                      externalRipple={isSelected ? activeRipple : null}
+                      onInspectCoordinate={handleInspectCoordinate}
                       onTap={(x, y, rx, ry) => handleTapForDevice(device.id, x, y, rx, ry)}
                       onSwipe={(x1, y1, x2, y2, d, nx1, ny1, nx2, ny2) =>
                         handleSwipeForDevice(device.id, x1, y1, x2, y2, d, nx1, ny1, nx2, ny2)
@@ -1043,11 +1288,15 @@ export default function Home() {
           isStreaming={isStreaming}
           isGameActive={isGameActive}
           privacyMode={privacyMode}
+          hardwareMockState={hardwareMockState}
           onSendKey={sendKey}
           onSendText={sendText}
           onClipboardPaste={handleClipboardPaste}
           onToggleGamepad={handleToggleGamepad}
           onTogglePrivacy={togglePrivacyMode}
+          onSetBatteryMock={handleSetBatteryMock}
+          onResetBatteryMock={handleResetBatteryMock}
+          onSetAirplaneMode={handleSetAirplaneMode}
         />
 
         {/* Cyberpunk Glass Console */}

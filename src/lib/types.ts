@@ -22,9 +22,25 @@ export interface LogMessage {
   type?: 'info' | 'error' | 'system';
 }
 
-// Feature #8: Macro Recorder Types
-export type MacroActionType = 'tap' | 'swipe' | 'key' | 'text' | 'delay' | 'wait_for_text';
+// Feature #8 & Advanced Automation: Macro Types
+export type MacroActionType =
+  | 'tap'
+  | 'swipe'
+  | 'key'
+  | 'text'
+  | 'delay'
+  | 'wait_for_text'
+  | 'condition'
+  | 'visual_diff';
+
 export type MacroErrorPolicy = 'abort_and_home' | 'pause_prompt' | 'skip';
+
+export interface MacroCondition {
+  conditionType: 'text_present' | 'text_absent';
+  targetText: string;
+  onTrue: MacroStep[];
+  onFalse?: MacroStep[];
+}
 
 export interface MacroStep {
   id: string;
@@ -47,6 +63,11 @@ export interface MacroStep {
   targetText?: string;
   timeoutMs?: number;
   packageName?: string;
+  // If/Else Conditional Branching (Feature #2)
+  condition?: MacroCondition;
+  // Visual Diff Regression (Feature #10)
+  baselineImageData?: string;
+  diffThresholdPercent?: number;
 }
 
 export interface MacroWorkflow {
@@ -54,6 +75,21 @@ export interface MacroWorkflow {
   name: string;
   steps: MacroStep[];
   createdAt: number;
+}
+
+// Feature #4: Developer Quick-Fill Vault Snippet
+export interface QuickFillSnippet {
+  id: string;
+  title: string;
+  value: string;
+  category: 'auth' | 'data' | 'payment' | 'custom';
+}
+
+// Feature #6: Hardware State Mocking
+export interface HardwareMockState {
+  batteryLevel: number;
+  isUnplugged: boolean;
+  airplaneMode: boolean;
 }
 
 // Feature #3: Gamepad Virtual Keys & Layout
