@@ -1,8 +1,24 @@
 'use client';
 
-import React, { useRef } from 'react';
-import { Play, Square, Circle, FastForward, Repeat, Trash2, Download, Upload, Clock, MousePointer, Move, KeyRound, Type, Sparkles } from 'lucide-react';
-import { MacroStep } from '@/lib/types';
+import React, { useRef, useState } from 'react';
+import {
+  Play,
+  Square,
+  Circle,
+  FastForward,
+  Repeat,
+  Trash2,
+  Download,
+  Upload,
+  Clock,
+  MousePointer,
+  Move,
+  KeyRound,
+  Type,
+  Eye,
+  ShieldAlert,
+} from 'lucide-react';
+import { MacroStep, MacroErrorPolicy } from '@/lib/types';
 
 interface MacroEditorProps {
   isRecording: boolean;
@@ -12,12 +28,17 @@ interface MacroEditorProps {
   speedMultiplier: number;
   loopCount: number;
   targetDeviceName?: string;
+  errorPolicy?: MacroErrorPolicy;
+  failedStepId?: string | null;
+  lastErrorMessage?: string | null;
   onStartRecording: () => void;
   onStopRecording: () => void;
   onPlay: () => void;
   onStopPlayback: () => void;
   onSetSpeed: (speed: number) => void;
   onSetLoop: (loop: number) => void;
+  onSetErrorPolicy?: (policy: MacroErrorPolicy) => void;
+  onAddVisionTrigger?: (targetText: string) => void;
   onDeleteStep: (id: string) => void;
   onClearSteps: () => void;
   onImportSteps: (steps: MacroStep[]) => void;
@@ -31,17 +52,24 @@ export const MacroEditor: React.FC<MacroEditorProps> = ({
   speedMultiplier,
   loopCount,
   targetDeviceName,
+  errorPolicy = 'abort_and_home',
+  failedStepId,
+  lastErrorMessage,
   onStartRecording,
   onStopRecording,
   onPlay,
   onStopPlayback,
   onSetSpeed,
   onSetLoop,
+  onSetErrorPolicy,
+  onAddVisionTrigger,
   onDeleteStep,
   onClearSteps,
   onImportSteps,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showVisionModal, setShowVisionModal] = useState(false);
+  const [visionText, setVisionText] = useState('');
 
   const handleExportJson = () => {
     if (steps.length === 0) return;
@@ -81,6 +109,8 @@ export const MacroEditor: React.FC<MacroEditorProps> = ({
         return <KeyRound className="w-3.5 h-3.5 text-amber-400" />;
       case 'text':
         return <Type className="w-3.5 h-3.5 text-emerald-400" />;
+      case 'wait_for_text':
+        return <Eye className="w-3.5 h-3.5 text-purple-400" />;
       default:
         return <Clock className="w-3.5 h-3.5 text-slate-400" />;
     }
@@ -98,7 +128,10 @@ export const MacroEditor: React.FC<MacroEditorProps> = ({
             Workflow Automator
           </h3>
           {targetDeviceName && (
-            <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-1.5 py-0.5 rounded-md font-mono truncate max-w-[140px]" title={targetDeviceName}>
+            <span
+              className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-1.5 py-0.5 rounded-md font-mono truncate max-w-[140px]"
+              title={targetDeviceName}
+            >
               {targetDeviceName}
             </span>
           )}
@@ -119,6 +152,19 @@ export const MacroEditor: React.FC<MacroEditorProps> = ({
           </div>
         )}
       </div>
+
+      {/* Fail-Safe Alert Banner */}
+      {lastErrorMessage && (
+        <div className="p-2.5 rounded-xl bg-red-500/20 border border-red-500/50 text-red-200 text-[11px] flex items-center justify-between animate-pulse">
+          <div className="flex items-center gap-1.5">
+            <ShieldAlert className="w-4 h-4 text-red-400" />
+            <span>{lastErrorMessage}</span>
+          </div>
+          <span className="text-[9px] bg-red-950/80 px-2 py-0.5 rounded text-red-300 font-mono font-bold">
+            SAFE HOME RESET
+          </span>
+        </div>
+      )}
 
       {/* Primary Action Controls */}
       <div className="grid grid-cols-2 gap-2">
@@ -163,73 +209,110 @@ export const MacroEditor: React.FC<MacroEditorProps> = ({
         )}
       </div>
 
-      {/* Speed & Loop Controls */}
-      <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-black/40 border border-white/5 text-[11px]">
-        {/* Speed Multiplier */}
-        <div className="flex items-center gap-1 text-slate-400">
-          <FastForward className="w-3.5 h-3.5 text-cyan-400" />
-          <div className="flex items-center gap-1">
-            {[0.5, 1.0, 2.0, 4.0].map((s) => (
-              <button
-                key={s}
-                onClick={() => onSetSpeed(s)}
-                className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${
-                  speedMultiplier === s
-                    ? 'bg-cyan-500/30 text-cyan-200 border border-cyan-500/50'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                {s}x
-              </button>
-            ))}
+      {/* Speed, Loop & Error Policy Controls */}
+      <div className="flex flex-col gap-2 p-2 rounded-xl bg-black/40 border border-white/5 text-[11px]">
+        <div className="flex items-center justify-between gap-2">
+          {/* Speed Multiplier */}
+          <div className="flex items-center gap-1 text-slate-400">
+            <FastForward className="w-3.5 h-3.5 text-cyan-400" />
+            <div className="flex items-center gap-1">
+              {[0.5, 1.0, 2.0, 4.0].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => onSetSpeed(s)}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${
+                    speedMultiplier === s
+                      ? 'bg-cyan-500/30 text-cyan-200 border border-cyan-500/50'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {s}x
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Loop Count */}
+          <div className="flex items-center gap-1 text-slate-400">
+            <Repeat className="w-3.5 h-3.5 text-indigo-400" />
+            <div className="flex items-center gap-1">
+              {[1, 3, 5, 0].map((l) => (
+                <button
+                  key={l}
+                  onClick={() => onSetLoop(l)}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${
+                    loopCount === l
+                      ? 'bg-indigo-500/30 text-indigo-200 border border-indigo-500/50'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {l === 0 ? '∞' : `${l}x`}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
-        {/* Loop Count */}
-        <div className="flex items-center gap-1 text-slate-400">
-          <Repeat className="w-3.5 h-3.5 text-indigo-400" />
-          <div className="flex items-center gap-1">
-            {[1, 3, 5, 0].map((l) => (
-              <button
-                key={l}
-                onClick={() => onSetLoop(l)}
-                className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${
-                  loopCount === l
-                    ? 'bg-indigo-500/30 text-indigo-200 border border-indigo-500/50'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                {l === 0 ? '∞' : `${l}x`}
-              </button>
-            ))}
+        {/* Self-Healing Fail-Safe Policy Selector */}
+        {onSetErrorPolicy && (
+          <div className="flex items-center justify-between pt-1.5 border-t border-white/5 text-[10px]">
+            <span className="text-slate-400 flex items-center gap-1">
+              <ShieldAlert className="w-3 h-3 text-emerald-400" />
+              <span>On Error:</span>
+            </span>
+            <div className="flex items-center gap-1">
+              {(
+                [
+                  { id: 'abort_and_home', label: 'Home Reset' },
+                  { id: 'skip', label: 'Skip' },
+                  { id: 'pause_prompt', label: 'Pause' },
+                ] as const
+              ).map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => onSetErrorPolicy(p.id)}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition-all ${
+                    errorPolicy === p.id
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                      : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Step Timeline List */}
       <div className="max-h-36 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
         {steps.length === 0 ? (
           <div className="py-4 text-center text-[11px] text-slate-500">
-            No actions recorded yet. Click <span className="text-red-400 font-semibold">Record Macro</span> and perform gestures on your phone mirror.
+            No actions recorded yet. Click <span className="text-red-400 font-semibold">Record Macro</span> or add a <span className="text-purple-400 font-semibold">Vision Guard</span>.
           </div>
         ) : (
           steps.map((step, idx) => {
             const isCurrent = currentStepIndex === idx;
+            const isFailed = failedStepId === step.id;
+
             return (
               <div
                 key={step.id}
                 className={`flex items-center justify-between p-2 rounded-xl text-[11px] border transition-all ${
-                  isCurrent
+                  isFailed
+                    ? 'bg-red-500/30 border-red-500 text-red-100 shadow-[0_0_12px_rgba(239,68,68,0.4)] animate-pulse'
+                    : isCurrent
                     ? 'bg-emerald-500/20 border-emerald-400 text-white shadow-md'
                     : 'bg-white/5 border-white/5 text-slate-300'
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-[9px] text-slate-500 w-4">
-                    {idx + 1}.
-                  </span>
+                  <span className="font-mono text-[9px] text-slate-500 w-4">{idx + 1}.</span>
                   {getStepIcon(step.type)}
-                  <span className="font-semibold capitalize">{step.type}</span>
+                  <span className="font-semibold capitalize">
+                    {step.type === 'wait_for_text' ? 'Vision Guard' : step.type}
+                  </span>
                   {step.type === 'tap' && (
                     <span className="text-[10px] font-mono text-slate-400">
                       ({step.x}, {step.y})
@@ -248,6 +331,11 @@ export const MacroEditor: React.FC<MacroEditorProps> = ({
                   {step.type === 'text' && (
                     <span className="text-[10px] font-mono text-slate-400 truncate max-w-[90px]">
                       &quot;{step.text}&quot;
+                    </span>
+                  )}
+                  {step.type === 'wait_for_text' && (
+                    <span className="text-[10px] font-mono text-purple-300 truncate max-w-[100px]" title={step.targetText}>
+                      Wait: &quot;{step.targetText}&quot;
                     </span>
                   )}
                 </div>
@@ -269,24 +357,70 @@ export const MacroEditor: React.FC<MacroEditorProps> = ({
         )}
       </div>
 
-      {/* Export / Import Bar */}
+      {/* Vision Trigger Modal Prompt */}
+      {showVisionModal && (
+        <div className="p-2.5 rounded-xl bg-purple-950/40 border border-purple-500/30 flex flex-col gap-2 text-xs">
+          <div className="flex items-center justify-between text-purple-200 font-semibold">
+            <span className="flex items-center gap-1">
+              <Eye className="w-3.5 h-3.5 text-purple-400" />
+              <span>Add Vision Guard (OCR)</span>
+            </span>
+            <button
+              onClick={() => setShowVisionModal(false)}
+              className="text-slate-400 hover:text-white"
+            >
+              ✕
+            </button>
+          </div>
+          <input
+            type="text"
+            placeholder='e.g. "Instagram", "Confirm", "Search"'
+            value={visionText}
+            onChange={(e) => setVisionText(e.target.value)}
+            className="w-full px-2 py-1 rounded bg-black/60 border border-white/10 text-white text-xs placeholder:text-slate-500 focus:outline-none focus:border-purple-400"
+          />
+          <button
+            onClick={() => {
+              if (visionText.trim() && onAddVisionTrigger) {
+                onAddVisionTrigger(visionText);
+                setVisionText('');
+                setShowVisionModal(false);
+              }
+            }}
+            className="w-full py-1 rounded bg-purple-600 hover:bg-purple-500 text-white font-semibold text-xs transition-all"
+          >
+            Insert Vision Step
+          </button>
+        </div>
+      )}
+
+      {/* Export / Import & Vision Add Bar */}
       <div className="flex items-center justify-between pt-2 border-t border-white/10 text-xs">
         <div className="flex gap-1.5">
           <button
             onClick={handleExportJson}
             disabled={steps.length === 0}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-slate-200 transition-all text-[11px] disabled:opacity-40"
+            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-slate-200 transition-all text-[11px] disabled:opacity-40"
           >
             <Download className="w-3 h-3" />
-            <span>Export JSON</span>
+            <span>Export</span>
           </button>
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-slate-200 transition-all text-[11px]"
+            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-slate-200 transition-all text-[11px]"
           >
             <Upload className="w-3 h-3" />
             <span>Import</span>
           </button>
+          {onAddVisionTrigger && (
+            <button
+              onClick={() => setShowVisionModal(!showVisionModal)}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 transition-all text-[11px]"
+            >
+              <Eye className="w-3 h-3" />
+              <span>+ Vision</span>
+            </button>
+          )}
           <input
             ref={fileInputRef}
             type="file"

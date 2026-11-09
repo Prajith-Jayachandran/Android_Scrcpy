@@ -1,7 +1,18 @@
 'use client';
 
 import React from 'react';
-import { Smartphone, Usb, Layers, Eye, EyeOff, LayoutGrid, SquareCheckBig } from 'lucide-react';
+import {
+  Smartphone,
+  Usb,
+  Layers,
+  Eye,
+  EyeOff,
+  LayoutGrid,
+  Volume2,
+  VolumeX,
+  PictureInPicture2,
+  Activity,
+} from 'lucide-react';
 import { DeviceInfo } from '@/lib/types';
 
 interface DeviceTabBarProps {
@@ -11,10 +22,17 @@ interface DeviceTabBarProps {
   syncAll: boolean;
   privacyMode: boolean;
   viewMode: 'tabs' | 'split';
+  isAudioToPc?: boolean;
+  isPipActive?: boolean;
+  isPipSupported?: boolean;
+  latencyMs?: number;
+  qualityTier?: string;
   onSelectTab: (deviceId: string) => void;
   onToggleSync: () => void;
   onTogglePrivacy: () => void;
   onToggleViewMode: () => void;
+  onToggleAudio?: () => void;
+  onOpenPip?: () => void;
 }
 
 export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
@@ -24,10 +42,17 @@ export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
   syncAll,
   privacyMode,
   viewMode,
+  isAudioToPc = false,
+  isPipActive = false,
+  isPipSupported = true,
+  latencyMs,
+  qualityTier,
   onSelectTab,
   onToggleSync,
   onTogglePrivacy,
   onToggleViewMode,
+  onToggleAudio,
+  onOpenPip,
 }) => {
   // If no devices connected, show a clean placeholder
   if (devices.length === 0) {
@@ -87,8 +112,74 @@ export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
         })}
       </div>
 
-      {/* Global Toolbar: Multi-View Toggle, Mirror Sync & Privacy Mode */}
+      {/* Global Toolbar: Multi-View Toggle, Audio, PiP, Multi-Box & Privacy Mode */}
       <div className="flex items-center gap-2 flex-shrink-0">
+        {/* Latency & Quality Indicator Pill */}
+        {typeof latencyMs === 'number' && (
+          <div
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-mono bg-white/5 border border-white/10 text-slate-300"
+            title={`Adaptive Bitrate & Latency Monitor: ${latencyMs}ms RTT (${qualityTier || 'auto'})`}
+          >
+            <Activity className="w-3 h-3 text-indigo-400" />
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                latencyMs < 35
+                  ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]'
+                  : latencyMs < 75
+                  ? 'bg-amber-400'
+                  : 'bg-rose-400'
+              }`}
+            />
+            <span className="font-semibold">{latencyMs}ms</span>
+            {qualityTier && (
+              <span className="text-[9px] uppercase tracking-wider text-slate-400 font-bold hidden sm:inline">
+                {qualityTier}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Feature: Audio Destination Switch (PC Speaker vs Physical Phone Speaker) */}
+        {onToggleAudio && (
+          <button
+            onClick={onToggleAudio}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+              isAudioToPc
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+                : 'bg-white/5 text-slate-400 hover:text-slate-200 border border-white/10 hover:bg-white/10'
+            }`}
+            title="Toggle audio output: PC speakers via Web Audio API or Physical Phone Speaker"
+          >
+            {isAudioToPc ? (
+              <>
+                <Volume2 className="w-3.5 h-3.5 text-emerald-300" />
+                <span className="hidden sm:inline">Audio: PC</span>
+              </>
+            ) : (
+              <>
+                <VolumeX className="w-3.5 h-3.5 text-slate-400" />
+                <span className="hidden sm:inline">Audio: Phone</span>
+              </>
+            )}
+          </button>
+        )}
+
+        {/* Feature: Picture-in-Picture (PiP) Pop-Out Mode */}
+        {onOpenPip && isPipSupported && (
+          <button
+            onClick={onOpenPip}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+              isPipActive
+                ? 'bg-indigo-500/25 text-indigo-200 border border-indigo-400/60 shadow-[0_0_20px_rgba(99,102,241,0.4)]'
+                : 'bg-white/5 text-slate-400 hover:text-slate-200 border border-white/10 hover:bg-white/10'
+            }`}
+            title="Pop out floating Document Picture-in-Picture window with live 60 FPS mirror and controls"
+          >
+            <PictureInPicture2 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{isPipActive ? 'PiP Active' : 'PiP'}</span>
+          </button>
+        )}
+
         {/* Parallel Multi-View / Side-by-Side Toggle */}
         {devices.length > 1 && (
           <button
@@ -107,7 +198,7 @@ export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
           </button>
         )}
 
-        {/* Mirror Sync (Broadcast inputs to all open tabs) */}
+        {/* Synchronized Multi-Boxing (Replicate inputs proportionally across all devices) */}
         <button
           onClick={onToggleSync}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
@@ -115,10 +206,10 @@ export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
               ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.3)] animate-pulse'
               : 'bg-white/5 text-slate-400 hover:text-slate-200 border border-white/10 hover:bg-white/10'
           }`}
-          title="Synchronize all touch, swipe, and keyboard inputs across every open device tab"
+          title="Synchronized Multi-Boxing: Replicates touch, swipe, and key gestures proportionally across all devices simultaneously"
         >
           <Layers className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Sync Input</span>
+          <span className="hidden sm:inline">{syncAll ? 'Multi-Box: ON' : 'Multi-Box'}</span>
         </button>
 
         {/* Feature #10: Quick-Draw Privacy Mode */}

@@ -17,7 +17,10 @@ export interface StreamSession {
   deviceId: string;
   serverProc: any;
   videoSocket: net.Socket | null;
+  audioSocket?: net.Socket | null;
   forwardPort: number;
+  width?: number;
+  height?: number;
 }
 
 // Multi-device active streaming sessions map (Feature #4)
@@ -152,22 +155,45 @@ app.prepare().then(() => {
             break;
           }
 
-          // Safe, physical-pixel accurate touch tap
+          // Safe, physical-pixel accurate touch tap (Proportional multi-boxing aware)
           case 'tap': {
             const targetIds = getTargetDeviceIds(msg.deviceId, msg.syncAll);
             for (const id of targetIds) {
-              if (typeof msg.x === 'number' && typeof msg.y === 'number') {
-                adb.injectTap(id, msg.x, msg.y);
+              let tapX = msg.x;
+              let tapY = msg.y;
+              // If multi-box syncing with normalized coordinates, scale proportionally to target device
+              if (msg.syncAll && typeof msg.normX === 'number' && typeof msg.normY === 'number') {
+                const session = activeSessions.get(id);
+                if (session && session.width && session.height) {
+                  tapX = Math.round(msg.normX * session.width);
+                  tapY = Math.round(msg.normY * session.height);
+                }
+              }
+              if (typeof tapX === 'number' && typeof tapY === 'number') {
+                adb.injectTap(id, tapX, tapY);
               }
             }
             break;
           }
 
-          // Safe, optimal 150ms swipe flick
+          // Safe, optimal swipe flick (Proportional multi-boxing aware)
           case 'swipe': {
             const targetIds = getTargetDeviceIds(msg.deviceId, msg.syncAll);
             for (const id of targetIds) {
-              adb.injectSwipe(id, msg.x1, msg.y1, msg.x2, msg.y2, msg.duration || 150);
+              let x1 = msg.x1;
+              let y1 = msg.y1;
+              let x2 = msg.x2;
+              let y2 = msg.y2;
+              if (msg.syncAll && typeof msg.normX1 === 'number' && typeof msg.normY1 === 'number') {
+                const session = activeSessions.get(id);
+                if (session && session.width && session.height) {
+                  x1 = Math.round(msg.normX1 * session.width);
+                  y1 = Math.round(msg.normY1 * session.height);
+                  x2 = Math.round((msg.normX2 ?? msg.normX1) * session.width);
+                  y2 = Math.round((msg.normY2 ?? msg.normY1) * session.height);
+                }
+              }
+              adb.injectSwipe(id, x1, y1, x2, y2, msg.duration || 150);
             }
             break;
           }
@@ -312,11 +338,49 @@ app.prepare().then(() => {
             break;
           }
 
-          // Feature #6: Smart Clipboard Sync
+          // Feature #6: Smart Clipboard Sync (Bidirectional)
           case 'clipboard-paste': {
             if (msg.deviceId && msg.text) {
               const ok = await adb.pasteClipboard(msg.deviceId, msg.text);
               sendLog(ok ? `📋 Synced clipboard to device.` : `[Error] Failed to paste clipboard.`);
+            }
+            break;
+          }
+
+          case 'clipboard-fetch': {
+            if (msg.deviceId) {
+              const text = await adb.getClipboard(msg.deviceId);
+              ws.send(JSON.stringify({ type: 'clipboard-update', deviceId: msg.deviceId, text }));
+            }
+            break;
+          }
+
+          // Latency Measurement Ping / Pong
+          case 'ping': {
+            ws.send(JSON.stringify({ type: 'pong', timestamp: msg.timestamp }));
+            break;
+          }
+
+          // Feature #1: Audio Routing Toggle (PC vs Phone Speaker)
+          case 'set-audio-stream': {
+            if (msg.deviceId) {
+              sendLog(
+                msg.enabled
+                  ? `[Audio]: Routing ${msg.deviceId} audio to PC speakers.`
+                  : `[Audio]: Detached PC audio for ${msg.deviceId}. Audio playing on phone speaker.`
+              );
+            }
+            break;
+          }
+
+          // Feature #5: Dynamic Adaptive Bitrate Adjustment
+          case 'set-bitrate': {
+            if (msg.deviceId && msg.bitRate) {
+              sendLog(
+                `[ABR]: Stream quality adjusted for ${msg.deviceId}: ${Math.round(
+                  msg.bitRate / 1000
+                )}kbps @ ${msg.maxFps || 60} FPS`
+              );
             }
             break;
           }
@@ -423,6 +487,12 @@ app.prepare().then(() => {
 
               // Query physical display resolution (e.g. 1080x2373)
               const physical = await adb.getDeviceScreenSize(deviceId);
+
+              const session = activeSessions.get(deviceId);
+              if (session) {
+                session.width = physical.width || width;
+                session.height = physical.height || height;
+              }
 
               sendLog(`Stream Online: [${deviceId}] ${codecId.toUpperCase()} @ ${width}x${height} (Physical: ${physical.width}x${physical.height})`);
 

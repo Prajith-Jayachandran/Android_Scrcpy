@@ -50,33 +50,58 @@ An ultra-low-latency, pure-web Android screen mirroring, multi-device management
 * **Numbered Tabs**: Displays all connected devices with clean hardware identifiers (e.g., `Tab 1: OPPO CPH2689`, `Tab 2: moto g05`).
 * **Continuous Parallel Mirroring**: Switching tabs does not terminate or drop background streams. Both devices continue streaming and decoding in the background without interruptions.
 * **Side-by-Side Split View Mode (`⊞ Side-by-Side`)**: View and interact with multiple devices side-by-side on a unified screen simultaneously.
-* **Plug & Play USB Auto-Detection**: Automatically detects newly plugged-in USB Android devices and presents a prompt to instantly open a new mirroring tab.
+* **Plug & Play USB Auto-Detection & Smart Refresh**: Automatically detects newly plugged-in USB Android devices and presents a prompt to instantly open a new mirroring tab. Manual list refresh quietly scans connected devices without triggering false-positive connection prompts for already active tabs.
 
-### 🤖 2. Per-Device Workflow Automator (Macro Engine)
+### ⟁ 2. Synchronized Multi-Boxing (Proportional Input Multiplexing)
+* **Input Multiplexer Toggle (`⟁ Multi-Box`)**: Replicates your mouse clicks, swipes, and keystrokes across all active connected devices simultaneously.
+* **Normalized Coordinate Scaling**: Client calculates proportional $(u, v) \in [0.0, 1.0]$ touch coordinates and server scales gestures accurately against each target session's physical resolution (e.g. 1080p OPPO vs 720p Moto), ensuring pixel-perfect multi-device QA testing and multi-account gaming.
+
+### ⧉ 3. Native Document Picture-in-Picture (PiP) Mode
+* **Floating Always-On-Top Window**: Utilizes the modern browser Document Picture-in-Picture API to pop out any active device screen into a floating desktop window.
+* **Live 60 FPS Mirroring & Full Controls**: Continues mirroring at 60 FPS via `requestAnimationFrame` with complete touch, swipe, click, and bottom navigation dock controls (Back, Home, Recents, Power) active while multitasking across other desktop apps.
+
+### 🔊 4. Web Audio API Streaming & PC / Phone Output Switch
+* **Native Audio Forwarding**: Streams native device audio (Android 11+) directly to the browser without requiring aux cables or Bluetooth pairing.
+* **Audio Destination Toggle (`[ 🔊 Audio: PC ]` / `[ 🔈 Audio: Phone ]`)**: Easily switch audio output destination with one click. When toggled OFF, device audio cleanly plays through the physical phone speaker.
+
+### 📋 5. Bidirectional Real-Time Clipboard Sync
+* **Seamless Two-Way Clipboard**: Copying text on your PC (Windows, macOS, Linux) automatically synchronizes it to the connected Android device clipboard via ADB over WebSocket.
+* **Device-to-PC Sync**: Automatically extracts device clipboard updates on window focus and synchronizes copied text back to your PC clipboard in real time.
+
+### 👁️ 6. Canvas OCR, Vision Triggers & Macro Self-Healing Guard
+* **Client-Side Canvas OCR**: Uses client-side Tesseract.js engine to extract on-screen text and detect UI elements directly from active canvas frames.
+* **Vision-Triggered Steps (`wait_for_text`)**: Macro workflows can pause and wait for specific text, buttons, or dialogs to appear on screen before proceeding.
+* **Self-Healing Fail-Safe Reset**: If a target app or UI element is missing or deleted (e.g. Instagram uninstalled), the macro engine automatically catches the condition, dispatches `KEYCODE_HOME` to safely return Android to normal launcher state, and alerts the user with error diagnostics.
+
+### ⚡ 7. Adaptive Bitrate (ABR) & Latency Monitor
+* **Live Network RTT Telemetry**: Continually tracks round-trip WebSocket latency and render times via real-time ping/pong packet measurements.
+* **Dynamic Quality Scaling**: Automatically scales bitrate and encoding parameters across quality tiers (**Ultra** 1080p @ 60 FPS • 8M, **High** 1080p @ 60 FPS • 5M, **Balanced** 900p @ 45 FPS • 3M, **Low / Jitter Guard** 720p @ 30 FPS • 1.5M) to prevent stutter on unstable wireless ADB links.
+
+### 🤖 8. Per-Device Workflow Automator (Macro Engine)
 * **Isolated Device Workflows**: Each connected Android device maintains its own independent macro timeline. Switching between Device 1 and Device 2 loads that specific device's macros.
 * **Full Gesture & Input Recording**: Records screen taps, swipes, hardware keys (Back, Home, Recents, Power, Volume), and text inputs with exact coordinate mapping and microsecond timing.
 * **Variable Speed & Looping**: Replay macros at 0.5x, 1x, 2x, or 4x speed with single-shot or infinite loop execution.
 * **Persistent Storage & Tagged Export**: Macros automatically persist across reloads in `localStorage` under `aether_macro_${deviceId}`. Export macros to JSON with device-tagged filenames (`aether_macro_${deviceName}_${timestamp}.json`).
 
-### 🎮 3. Contextual Gamepad & Aim Lock Keymapper
+### 🎮 9. Contextual Gamepad & Aim Lock Keymapper
 * **Contextual Floating Controls**: Gamepad overlay automatically activates when games are launched or toggled.
 * **WASD Virtual Joystick**: Maps PC keyboard inputs (`W`, `A`, `S`, `D`) to analog thumbstick gestures on the Android display.
 * **F1 Aim Lock Mode**: Press `F1` to lock the mouse cursor inside the phone viewport for native FPS/third-person shooter mouse aiming.
 * **Action Buttons**: Floating on-screen buttons mapped to customizable touch coordinates.
 
-### 📦 4. Drag & Drop APK Sideloading & Media Drop
+### 📦 10. Drag & Drop APK Sideloading & Media Drop
 * **Drag-and-Drop APK Installation**: Simply drop `.apk` files anywhere onto the device canvas to automatically trigger silent ADB installation (`adb install -r`).
 * **Instant Media Transfer**: Drop images, videos, audio, or documents directly onto the canvas to upload them to `/sdcard/Download/` and fire an automatic `MEDIA_SCANNER_SCAN_FILE` broadcast so they appear immediately in Android's gallery.
 
-### 🌑 5. OLED Privacy Mode / Screen Blanking
+### 🌑 11. OLED Privacy Mode / Screen Blanking
 * One-click hardware screen blanking turns off / blacks out the physical smartphone OLED screen while maintaining full 60 FPS mirror and touch interactivity on the web dashboard.
 * Saves device battery, reduces thermals, and prevents shoulder surfing.
 
-### ⚡ 6. Wired & Wireless ADB Connectivity
+### ⚡ 12. Wired & Wireless ADB Connectivity
 * Seamless support for both USB-cabled devices and wireless ADB over TCP/IP (`adb connect`).
 * Automatic reconnection and dynamic device enumeration.
 
-### 💎 7. Ultra-Realistic Glassmorphic UI & Diagnostics
+### 💎 13. Ultra-Realistic Glassmorphic UI & Diagnostics
 * Futuristic cyberpunk/glassmorphism interface with ambient edge lighting and device chassis.
 * Real-time telemetry diagnostics: live FPS counter, resolution telemetry, frame render time, and system logs.
 
@@ -208,7 +233,7 @@ npm start
 ```
 
 ### Automated End-to-End Smoke Test Suite
-The project includes an automated end-to-end smoke test suite verifying all 10 critical layers:
+The project includes an automated end-to-end smoke test suite verifying all 11 critical layers:
 1. Environment & ADB binary dependencies.
 2. Authorized Android hardware detection.
 3. Next.js HTTP dashboard health (HTTP 200).
@@ -216,6 +241,7 @@ The project includes an automated end-to-end smoke test suite verifying all 10 c
 5. WebSocket control protocol (`get-devices`).
 6. 60 FPS hardware mirror streaming & H.264 packet delivery.
 7. Input gestures (Wake Key, Tap, Swipe flick).
-8. Stream teardown & port release (`stop-stream`).
-9. Android system stability & kernel health.
-10. Desktop App Launcher (`.desktop`), `~/.local` deployment, uninstaller & project cleanup lifecycle.
+8. Advanced Features Pipeline (ABR Ping/Pong, Audio Toggle, Bidirectional Clipboard Sync, Multi-Box Proportional Scaling, Refresh stability).
+9. Stream teardown & port release (`stop-stream`).
+10. Android system stability & kernel health.
+11. Desktop App Launcher (`.desktop`), `~/.local` deployment, uninstaller & project cleanup lifecycle.

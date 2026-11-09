@@ -195,7 +195,7 @@ export class AdbManager {
     return new Promise((resolve) => {
       execFile(
         this.adbPath,
-        ['-s', deviceId, 'shell', 'pkill -9 -f com.genymobile.scrcpy.Server || true'],
+        ['-s', deviceId, 'shell', 'pkill -9 -u shell app_process 2>/dev/null || pkill -9 -f scrcpy 2>/dev/null || true'],
         () => resolve()
       );
     });
@@ -551,7 +551,7 @@ export class AdbManager {
   }
 
   // --------------------------------------------------------------------------
-  // Feature #6: Smart Clipboard Sync (PC to Phone)
+  // Feature #6: Smart Clipboard Sync (PC to Phone & Phone to PC)
   // --------------------------------------------------------------------------
   public async pasteClipboard(deviceId: string, text: string): Promise<boolean> {
     return new Promise((resolve) => {
@@ -559,6 +559,17 @@ export class AdbManager {
       const escaped = text.replace(/ /g, '%s').replace(/[^a-zA-Z0-9%s._@!#$^&*()-+=~]/g, '');
       execFile(this.adbPath, ['-s', deviceId, 'shell', 'input', 'text', escaped], (err) => {
         resolve(!err);
+      });
+    });
+  }
+
+  public async getClipboard(deviceId: string): Promise<string> {
+    return new Promise((resolve) => {
+      execFile(this.adbPath, ['-s', deviceId, 'shell', 'cmd clipboard get 2>/dev/null || true'], (err, stdout) => {
+        if (!err && stdout && !stdout.includes('No shell command')) {
+          return resolve(stdout.trim());
+        }
+        resolve('');
       });
     });
   }

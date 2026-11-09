@@ -23,7 +23,8 @@ export interface LogMessage {
 }
 
 // Feature #8: Macro Recorder Types
-export type MacroActionType = 'tap' | 'swipe' | 'key' | 'text' | 'delay';
+export type MacroActionType = 'tap' | 'swipe' | 'key' | 'text' | 'delay' | 'wait_for_text';
+export type MacroErrorPolicy = 'abort_and_home' | 'pause_prompt' | 'skip';
 
 export interface MacroStep {
   id: string;
@@ -42,6 +43,10 @@ export interface MacroStep {
   keyCode?: number;
   // Text parameters
   text?: string;
+  // OCR / Vision Trigger parameters
+  targetText?: string;
+  timeoutMs?: number;
+  packageName?: string;
 }
 
 export interface MacroWorkflow {

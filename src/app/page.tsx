@@ -12,6 +12,10 @@ import { NewUsbDeviceModal } from '@/components/NewUsbDeviceModal';
 import { MacroEditor } from '@/components/MacroEditor';
 import { useMultiWebCodecs } from '@/hooks/useMultiWebCodecs';
 import { useMacroRecorder } from '@/hooks/useMacroRecorder';
+import { useCanvasOcr } from '@/hooks/useCanvasOcr';
+import { usePictureInPicture } from '@/hooks/usePictureInPicture';
+import { useDeviceAudio } from '@/hooks/useDeviceAudio';
+import { useAdaptiveBitrate } from '@/hooks/useAdaptiveBitrate';
 import { DeviceInfo, StreamMeta, LogMessage } from '@/lib/types';
 import { Cast } from 'lucide-react';
 
@@ -47,6 +51,7 @@ export default function Home() {
   const [newUsbModalOpen, setNewUsbModalOpen] = useState<boolean>(false);
   const [detectedUsbDevice, setDetectedUsbDevice] = useState<DeviceInfo | null>(null);
   const isManualRefreshRef = useRef<boolean>(false);
+  const knownDeviceIdsRef = useRef<Set<string>>(new Set());
 
   const addLog = useCallback((message: string) => {
     setLogs((prev) => [
@@ -61,6 +66,32 @@ export default function Home() {
 
   // Multi-Device WebCodecs Decoder Pool (Decodes each device in parallel)
   const { registerCanvas, decodeChunk, resetDecoder, fpsMap } = useMultiWebCodecs();
+
+  // Active Canvas Element Ref Map (Tracks mounted canvas for OCR and PiP sync)
+  const selectedCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const canvasElementsRef = useRef<Record<string, HTMLCanvasElement>>({});
+
+  useEffect(() => {
+    selectedCanvasRef.current = canvasElementsRef.current[selectedDeviceId] || null;
+  }, [selectedDeviceId]);
+
+  const handleRegisterCanvas = useCallback(
+    (deviceId: string, canvas: HTMLCanvasElement | null) => {
+      if (canvas) {
+        canvasElementsRef.current[deviceId] = canvas;
+        if (deviceId === selectedDeviceIdRef.current) {
+          selectedCanvasRef.current = canvas;
+        }
+      } else {
+        delete canvasElementsRef.current[deviceId];
+        if (selectedCanvasRef.current === canvasElementsRef.current[deviceId]) {
+          selectedCanvasRef.current = null;
+        }
+      }
+      registerCanvas(deviceId, canvas);
+    },
+    [registerCanvas]
+  );
 
   // Current active device streaming state and fps
   const activeDevice = devices.find((d) => d.id === selectedDeviceId);
@@ -102,22 +133,32 @@ export default function Home() {
   const rawTap = useCallback(
     (targetDeviceId: string, x: number, y: number) => {
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !targetDeviceId) return;
+      const meta = deviceMetas[targetDeviceId];
+      const normX = meta && meta.width > 0 ? x / meta.width : undefined;
+      const normY = meta && meta.height > 0 ? y / meta.height : undefined;
       wsRef.current.send(
         JSON.stringify({
           type: 'tap',
           deviceId: targetDeviceId,
           x,
           y,
+          normX,
+          normY,
           syncAll,
         })
       );
     },
-    [syncAll]
+    [deviceMetas, syncAll]
   );
 
   const rawSwipe = useCallback(
     (targetDeviceId: string, x1: number, y1: number, x2: number, y2: number, duration: number) => {
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !targetDeviceId) return;
+      const meta = deviceMetas[targetDeviceId];
+      const normX1 = meta && meta.width > 0 ? x1 / meta.width : undefined;
+      const normY1 = meta && meta.height > 0 ? y1 / meta.height : undefined;
+      const normX2 = meta && meta.width > 0 ? x2 / meta.width : undefined;
+      const normY2 = meta && meta.height > 0 ? y2 / meta.height : undefined;
       wsRef.current.send(
         JSON.stringify({
           type: 'swipe',
@@ -126,22 +167,63 @@ export default function Home() {
           y1,
           x2,
           y2,
+          normX1,
+          normY1,
+          normX2,
+          normY2,
           duration,
           syncAll,
         })
       );
     },
-    [syncAll]
+    [deviceMetas, syncAll]
   );
 
-  // Feature #8: Macro Recorder Hook
+  // Feature: Canvas OCR & Vision Triggers
+  const ocr = useCanvasOcr({
+    canvasRef: selectedCanvasRef as React.RefObject<HTMLCanvasElement>,
+    onLog: addLog,
+  });
+
+  // Feature #8: Macro Recorder Hook with Self-Healing Vision Guard
   const macroRecorder = useMacroRecorder({
     deviceId: selectedDeviceId,
     onDispatchTap: (x, y) => rawTap(selectedDeviceId, x, y),
     onDispatchSwipe: (x1, y1, x2, y2, d) => rawSwipe(selectedDeviceId, x1, y1, x2, y2, d),
     onDispatchKey: (code) => rawSendKey(selectedDeviceId, code),
     onDispatchText: (text) => rawSendText(selectedDeviceId, text),
+    onVerifyText: ocr.waitForTextOnCanvas,
+    onLog: addLog,
   });
+
+  // Feature: Document Picture-in-Picture Pop-out Mode
+  const pip = usePictureInPicture({
+    deviceId: selectedDeviceId,
+    meta: activeMeta,
+    canvasRef: selectedCanvasRef as React.RefObject<HTMLCanvasElement>,
+    onTap: (targetId, x, y) => rawTap(targetId, x, y),
+    onSwipe: (targetId, x1, y1, x2, y2, d) => rawSwipe(targetId, x1, y1, x2, y2, d),
+    onSendKey: (code) => rawSendKey(selectedDeviceId, code),
+  });
+
+  // Feature: Web Audio API Streamer & Speaker Destination Toggle
+  const audio = useDeviceAudio({
+    deviceId: selectedDeviceId,
+    wsRef,
+    onLog: addLog,
+  });
+
+  // Feature: Dynamic Adaptive Bitrate & Resolution (ABR) Monitor
+  const abr = useAdaptiveBitrate({
+    deviceId: selectedDeviceId,
+    wsRef,
+    onLog: addLog,
+  });
+
+  const handlePongRef = useRef(abr.handlePong);
+  useEffect(() => {
+    handlePongRef.current = abr.handlePong;
+  }, [abr.handlePong]);
 
   // Action dispatches for current active device
   const sendKey = useCallback(
@@ -239,23 +321,34 @@ export default function Home() {
             const newDevices: DeviceInfo[] = msg.devices || [];
             setDevices(newDevices);
 
+            // Clean up disconnected devices from known set
+            const currentIds = new Set(newDevices.map((d) => d.id));
+            for (const id of Array.from(knownDeviceIdsRef.current)) {
+              if (!currentIds.has(id)) {
+                knownDeviceIdsRef.current.delete(id);
+              }
+            }
+
+            // On initial boot, mark all currently detected devices as already known
+            if (knownDeviceIdsRef.current.size === 0 && newDevices.length > 0) {
+              newDevices.forEach((d) => {
+                if (d.status === 'device') knownDeviceIdsRef.current.add(d.id);
+              });
+            }
+
             if (isManualRefreshRef.current) {
               isManualRefreshRef.current = false;
-              // Check for any unlinked USB device
-              const unlinkedDevice = newDevices.find(
-                (d) => d.status === 'device' && (!selectedDeviceIdRef.current || d.id !== selectedDeviceIdRef.current)
+              // Check for any genuinely NEW USB device that is NOT yet in knownDeviceIdsRef
+              const brandNewDevice = newDevices.find(
+                (d) => d.status === 'device' && !knownDeviceIdsRef.current.has(d.id)
               );
 
-              if (unlinkedDevice) {
-                setDetectedUsbDevice(unlinkedDevice);
+              if (brandNewDevice) {
+                setDetectedUsbDevice(brandNewDevice);
                 setNewUsbModalOpen(true);
-                addLog(`Detected USB device: ${unlinkedDevice.model || unlinkedDevice.id}. Prompting to link...`);
-              } else if (newDevices.length > 0 && !selectedDeviceIdRef.current) {
-                setDetectedUsbDevice(newDevices[0]);
-                setNewUsbModalOpen(true);
+                addLog(`Detected new USB device: ${brandNewDevice.model || brandNewDevice.id}. Prompting to link as tab...`);
               } else if (newDevices.length > 0) {
-                setDetectedUsbDevice(newDevices[0]);
-                setNewUsbModalOpen(true);
+                addLog(`✔ Device list refreshed: ${newDevices.length} device(s) active and ready.`);
               } else {
                 addLog('No USB devices detected. Connect a phone via USB with USB debugging enabled.');
               }
@@ -312,6 +405,23 @@ export default function Home() {
             if (msg.deviceId === selectedDeviceIdRef.current) {
               setIsGameActive(msg.isGame);
               setActivePackage(msg.package);
+            }
+            break;
+          }
+
+          case 'pong': {
+            if (typeof msg.timestamp === 'number') {
+              handlePongRef.current(msg.timestamp);
+            }
+            break;
+          }
+
+          case 'clipboard-update': {
+            if (msg.text && typeof msg.text === 'string' && msg.text.trim()) {
+              if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(msg.text).catch(() => {});
+              }
+              addLog(`[Clipboard Sync]: Device clipboard synced ("${msg.text.length > 25 ? msg.text.substring(0, 25) + '...' : msg.text}")`);
             }
             break;
           }
@@ -429,6 +539,7 @@ export default function Home() {
     if (!detectedUsbDevice) return;
     const targetId = detectedUsbDevice.id;
     const brand = detectedUsbDevice.model || detectedUsbDevice.product || targetId;
+    knownDeviceIdsRef.current.add(targetId);
     setNewUsbModalOpen(false);
 
     setSelectedDeviceId(targetId);
@@ -475,6 +586,50 @@ export default function Home() {
     [selectedDeviceId]
   );
 
+  // Bidirectional Clipboard Sync: PC copy automatically injects to Android
+  useEffect(() => {
+    const handleCopy = async () => {
+      if (!selectedDeviceId || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text && text.trim()) {
+          wsRef.current.send(
+            JSON.stringify({
+              type: 'clipboard-paste',
+              deviceId: selectedDeviceId,
+              text,
+            })
+          );
+          addLog(`[Clipboard Sync]: PC clipboard synced to device (${text.length > 25 ? text.substring(0, 25) + '...' : text})`);
+        }
+      } catch (e) {}
+    };
+
+    window.addEventListener('copy', handleCopy);
+    return () => window.removeEventListener('copy', handleCopy);
+  }, [selectedDeviceId, addLog]);
+
+  // Periodic device clipboard fetch on window focus
+  useEffect(() => {
+    const syncDeviceClipboard = () => {
+      if (selectedDeviceId && isStreaming && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: 'clipboard-fetch',
+            deviceId: selectedDeviceId,
+          })
+        );
+      }
+    };
+
+    window.addEventListener('focus', syncDeviceClipboard);
+    const interval = setInterval(syncDeviceClipboard, 8000);
+    return () => {
+      window.removeEventListener('focus', syncDeviceClipboard);
+      clearInterval(interval);
+    };
+  }, [selectedDeviceId, isStreaming]);
+
   // Tab number calculation for modal
   const targetTabNumber = detectedUsbDevice
     ? devices.findIndex((d) => d.id === detectedUsbDevice.id) + 1 || devices.length + 1
@@ -492,6 +647,9 @@ export default function Home() {
         targetTabNumber={targetTabNumber}
         onConfirm={handleConfirmNewUsbLink}
         onCancel={() => {
+          if (detectedUsbDevice) {
+            knownDeviceIdsRef.current.add(detectedUsbDevice.id);
+          }
           setNewUsbModalOpen(false);
           setDetectedUsbDevice(null);
         }}
@@ -563,12 +721,17 @@ export default function Home() {
           currentStepIndex={macroRecorder.currentStepIndex}
           speedMultiplier={macroRecorder.speedMultiplier}
           loopCount={macroRecorder.loopCount}
+          errorPolicy={macroRecorder.errorPolicy}
+          failedStepId={macroRecorder.failedStepId}
+          lastErrorMessage={macroRecorder.lastErrorMessage}
           onStartRecording={macroRecorder.startRecording}
           onStopRecording={macroRecorder.stopRecording}
           onPlay={() => macroRecorder.playWorkflow()}
           onStopPlayback={macroRecorder.stopPlayback}
           onSetSpeed={macroRecorder.setSpeedMultiplier}
           onSetLoop={macroRecorder.setLoopCount}
+          onSetErrorPolicy={macroRecorder.setErrorPolicy}
+          onAddVisionTrigger={macroRecorder.addVisionTriggerStep}
           onDeleteStep={macroRecorder.deleteStep}
           onClearSteps={macroRecorder.clearSteps}
           onImportSteps={macroRecorder.importSteps}
@@ -585,10 +748,17 @@ export default function Home() {
           syncAll={syncAll}
           privacyMode={privacyMode}
           viewMode={viewMode}
+          isAudioToPc={audio.isAudioToPc}
+          isPipActive={pip.isPipActive}
+          isPipSupported={pip.isPipSupported}
+          latencyMs={abr.latencyMs}
+          qualityTier={abr.currentTier}
           onSelectTab={handleSelectTab}
           onToggleSync={() => setSyncAll(!syncAll)}
           onTogglePrivacy={togglePrivacyMode}
           onToggleViewMode={() => setViewMode((prev) => (prev === 'tabs' ? 'split' : 'tabs'))}
+          onToggleAudio={audio.toggleAudioDestination}
+          onOpenPip={pip.openPip}
         />
 
         {/* Parallel Device Display Stages */}
@@ -613,7 +783,7 @@ export default function Home() {
                     }`}
                   >
                     <ScreenViewer
-                      onRegisterCanvas={registerCanvas}
+                      onRegisterCanvas={handleRegisterCanvas}
                       activeDeviceId={device.id}
                       deviceName={`Tab #${idx + 1}: ${device.model || device.product || device.id}`}
                       isCompact={true}
@@ -645,7 +815,7 @@ export default function Home() {
                     }`}
                   >
                     <ScreenViewer
-                      onRegisterCanvas={registerCanvas}
+                      onRegisterCanvas={handleRegisterCanvas}
                       activeDeviceId={device.id}
                       deviceName={`Tab #${idx + 1}: ${device.model || device.product || device.id}`}
                       isCompact={false}

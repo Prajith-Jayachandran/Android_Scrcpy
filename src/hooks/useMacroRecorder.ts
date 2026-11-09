@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { MacroStep } from '@/lib/types';
+import { MacroStep, MacroErrorPolicy } from '@/lib/types';
 
 interface UseMacroRecorderProps {
   deviceId: string;
@@ -9,6 +9,8 @@ interface UseMacroRecorderProps {
   onDispatchSwipe: (x1: number, y1: number, x2: number, y2: number, duration: number) => void;
   onDispatchKey: (keyCode: number) => void;
   onDispatchText: (text: string) => void;
+  onVerifyText?: (targetText: string, timeoutMs?: number) => Promise<boolean>;
+  onLog?: (msg: string) => void;
 }
 
 export function useMacroRecorder({
@@ -17,6 +19,8 @@ export function useMacroRecorder({
   onDispatchSwipe,
   onDispatchKey,
   onDispatchText,
+  onVerifyText,
+  onLog,
 }: UseMacroRecorderProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -27,6 +31,11 @@ export function useMacroRecorder({
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(-1);
   const [speedMultiplier, setSpeedMultiplier] = useState<number>(1.0);
   const [loopCount, setLoopCount] = useState<number>(1); // 0 = infinite
+
+  // Fail-Safe & Self-Healing Error Policy
+  const [errorPolicy, setErrorPolicy] = useState<MacroErrorPolicy>('abort_and_home');
+  const [failedStepId, setFailedStepId] = useState<string | null>(null);
+  const [lastErrorMessage, setLastErrorMessage] = useState<string | null>(null);
 
   const lastEventTimeRef = useRef<number>(0);
   const abortReplayRef = useRef<boolean>(false);
@@ -45,6 +54,8 @@ export function useMacroRecorder({
     setIsPlaying(false);
     setIsRecording(false);
     setCurrentStepIndex(-1);
+    setFailedStepId(null);
+    setLastErrorMessage(null);
 
     // If already in memory, keep it
     if (deviceStepsMap[deviceId]) {
@@ -84,6 +95,8 @@ export function useMacroRecorder({
     if (!deviceIdRef.current) return;
     updateDeviceSteps(deviceIdRef.current, []);
     setIsRecording(true);
+    setFailedStepId(null);
+    setLastErrorMessage(null);
     lastEventTimeRef.current = Date.now();
   }, [updateDeviceSteps]);
 
@@ -123,6 +136,35 @@ export function useMacroRecorder({
     [isRecording]
   );
 
+  // Add a Vision Trigger step (wait for on-screen text/button)
+  const addVisionTriggerStep = useCallback(
+    (targetText: string, timeoutMs: number = 5000) => {
+      const activeId = deviceIdRef.current;
+      if (!activeId || !targetText.trim()) return;
+
+      const newStep: MacroStep = {
+        id: Math.random().toString(36).substring(2, 9),
+        delayMs: 300,
+        type: 'wait_for_text',
+        targetText: targetText.trim(),
+        timeoutMs,
+      };
+
+      setDeviceStepsMap((prev) => {
+        const existing = prev[activeId] || [];
+        const updated = [...existing, newStep];
+        try {
+          localStorage.setItem(`aether_macro_${activeId}`, JSON.stringify(updated));
+        } catch (e) {}
+        return {
+          ...prev,
+          [activeId]: updated,
+        };
+      });
+    },
+    []
+  );
+
   // Stop active playback
   const stopPlayback = useCallback(() => {
     abortReplayRef.current = true;
@@ -130,7 +172,7 @@ export function useMacroRecorder({
     setCurrentStepIndex(-1);
   }, []);
 
-  // Replay macro workflow for current device
+  // Replay macro workflow with Closed-Loop Self-Healing & Fail-Safe Recovery
   const playWorkflow = useCallback(
     async (customSteps?: MacroStep[]) => {
       const activeId = deviceIdRef.current;
@@ -139,6 +181,8 @@ export function useMacroRecorder({
 
       setIsPlaying(true);
       abortReplayRef.current = false;
+      setFailedStepId(null);
+      setLastErrorMessage(null);
 
       let currentLoop = 0;
       const targetLoops = loopCount;
@@ -157,7 +201,45 @@ export function useMacroRecorder({
             await new Promise((resolve) => setTimeout(resolve, waitTime));
             if (abortReplayRef.current) break;
 
-            // Dispatch step
+            // Handle Vision Trigger step
+            if (step.type === 'wait_for_text') {
+              const target = step.targetText || '';
+              const timeout = step.timeoutMs || 5000;
+              onLog?.(`[Vision Guard]: Checking for target text "${target}" on screen...`);
+
+              let found = false;
+              if (onVerifyText) {
+                found = await onVerifyText(target, timeout);
+              } else {
+                found = true; // Fallback if OCR is not wired
+              }
+
+              if (!found) {
+                const errMsg = `Target "${target}" not detected within ${timeout}ms.`;
+                onLog?.(`[Vision Guard Alert]: ${errMsg}`);
+                setFailedStepId(step.id);
+                setLastErrorMessage(errMsg);
+
+                if (errorPolicy === 'abort_and_home') {
+                  onLog?.(`[Fail-Safe Reset]: Returning device to clean Home screen (KEYCODE_HOME)...`);
+                  onDispatchKey(3); // KEYCODE_HOME
+                  abortReplayRef.current = true;
+                  break;
+                } else if (errorPolicy === 'skip') {
+                  onLog?.(`[Policy Skip]: Skipping step "${target}" and proceeding.`);
+                  continue;
+                } else {
+                  // Pause and prompt
+                  abortReplayRef.current = true;
+                  break;
+                }
+              } else {
+                onLog?.(`[Vision Guard]: Verified "${target}" on screen. Proceeding.`);
+              }
+              continue;
+            }
+
+            // Dispatch standard input steps
             switch (step.type) {
               case 'tap':
                 if (typeof step.x === 'number' && typeof step.y === 'number') {
@@ -193,7 +275,7 @@ export function useMacroRecorder({
             }
           }
 
-          // Loop delay
+          // Inter-loop delay
           if (!abortReplayRef.current && (targetLoops === 0 || currentLoop < targetLoops)) {
             await new Promise((resolve) => setTimeout(resolve, Math.round(500 / speedMultiplier)));
           }
@@ -203,7 +285,19 @@ export function useMacroRecorder({
         setCurrentStepIndex(-1);
       }
     },
-    [deviceStepsMap, isPlaying, loopCount, speedMultiplier, onDispatchTap, onDispatchSwipe, onDispatchKey, onDispatchText]
+    [
+      deviceStepsMap,
+      isPlaying,
+      loopCount,
+      speedMultiplier,
+      errorPolicy,
+      onDispatchTap,
+      onDispatchSwipe,
+      onDispatchKey,
+      onDispatchText,
+      onVerifyText,
+      onLog,
+    ]
   );
 
   const deleteStep = useCallback((stepId: string) => {
@@ -226,6 +320,8 @@ export function useMacroRecorder({
     const activeId = deviceIdRef.current;
     if (!activeId) return;
     updateDeviceSteps(activeId, []);
+    setFailedStepId(null);
+    setLastErrorMessage(null);
   }, [updateDeviceSteps]);
 
   const importSteps = useCallback((newSteps: MacroStep[]) => {
@@ -241,6 +337,10 @@ export function useMacroRecorder({
     currentStepIndex,
     speedMultiplier,
     loopCount,
+    errorPolicy,
+    failedStepId,
+    lastErrorMessage,
+    setErrorPolicy,
     setSpeedMultiplier,
     setLoopCount,
     startRecording,
@@ -248,6 +348,7 @@ export function useMacroRecorder({
     playWorkflow,
     stopPlayback,
     recordAction,
+    addVisionTriggerStep,
     deleteStep,
     clearSteps,
     importSteps,
