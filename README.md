@@ -1,122 +1,31 @@
-# Aether Mirror (Next.js • TypeScript • Tailwind • Multi-WebCodecs 60 FPS)
+# Aether Mirror
 
-An ultra-low-latency, pure-web Android screen mirroring, multi-device management, and automation dashboard. Built with **Next.js (App Router)**, **TypeScript**, **Tailwind CSS**, and **HTML5 WebCodecs (`VideoDecoder`)**, completely eliminating native window embedding hacks or Electron overhead.
-
----
-
-## 🏗️ Architecture
-
-```
- ┌────────────────────────────────────────────────────────┐
- │                   Connected Devices                    │
- │  ┌───────────────────────┐   ┌───────────────────────┐ │
- │  │ Device 1 (OPPO)       │   │ Device 2 (Moto G05)   │ │
- │  │ MediaCodec (H.264)    │   │ MediaCodec (H.264)    │ │
- │  └──────────┬────────────┘   └──────────┬────────────┘ │
- └─────────────┼───────────────────────────┼──────────────┘
-         TCP Port 27183              TCP Port 27184
-               │                           │
- ┌─────────────▼───────────────────────────▼──────────────┐
- │             Node.js Backend (server/index.ts)          │
- │  • Headless scrcpy-server agent lifecycle management   │
- │  • Dynamic TCP port allocation per active session      │
- │  • Multiplexed Binary WebSocket Stream Server          │
- │  • ADB Input & APK Sideload / File Upload Dispatcher   │
- └─────────────────────────────┬──────────────────────────┘
-                         Binary WebSocket
-                               │
- ┌─────────────────────────────▼──────────────────────────┐
- │             Next.js Frontend (Web Dashboard)           │
- │  • Multi-Device WebCodecs Decoder Pool (GPU Decoders)  │
- │  • Independent 60 FPS HTML5 <canvas> Video Surfaces    │
- │  • Numbered Device Tabs & Side-by-Side Split View      │
- │  • Per-Device Workflow Automator (Isolated Macros)     │
- │  • Contextual Gamepad Overlay & F1 Aim Lock            │
- │  • OLED Screen Blanking / Hardware Privacy Mode        │
- │  • Drag & Drop APK Sideloading & Media Gallery Drop    │
- └────────────────────────────────────────────────────────┘
-```
-
-1. **Hardware-Accelerated In-Browser Decoding**: Directly decodes raw H.264 NALUs using the browser's native **WebCodecs API** (`VideoDecoder`). Each video surface paints to an independent GPU-accelerated `<canvas>` element.
-2. **Parallel Multi-Device Streaming**: Simultaneously streams and decodes multiple physical or wireless Android devices side-by-side with independent dynamic socket channels (`27183`, `27184`, ...), zero stream teardowns, and 0ms instantaneous tab switching.
-3. **Ultra-Low Latency (~20–35 ms)**: Low-overhead binary WebSocket transport streaming up to 60 FPS with hardware decoding.
-4. **Pure Web Standard**: No OS window capture hacks, no Win32 `SetParent` glitches, and zero Electron bloat. Works seamlessly on Linux, macOS, and Windows.
-
----
-
-## ✨ Features
-
-### 📱 1. Multi-Device Numbered Tabs & Side-by-Side Split View
-* **Numbered Tabs**: Displays all connected devices with clean hardware identifiers (e.g., `Tab 1: OPPO CPH2689`, `Tab 2: moto g05`).
-* **Continuous Parallel Mirroring**: Switching tabs does not terminate or drop background streams. Both devices continue streaming and decoding in the background without interruptions.
-* **Side-by-Side Split View Mode (`⊞ Side-by-Side`)**: View and interact with multiple devices side-by-side on a unified screen simultaneously.
-* **Plug & Play USB Auto-Detection & Smart Refresh**: Automatically detects newly plugged-in USB Android devices and presents a prompt to instantly open a new mirroring tab. Manual list refresh quietly scans connected devices without triggering false-positive connection prompts for already active tabs.
-
-### ⟁ 2. Synchronized Multi-Boxing (Proportional Input Multiplexing)
-* **Input Multiplexer Toggle (`⟁ Multi-Box`)**: Replicates your mouse clicks, swipes, and keystrokes across all active connected devices simultaneously.
-* **Normalized Coordinate Scaling**: Client calculates proportional $(u, v) \in [0.0, 1.0]$ touch coordinates and server scales gestures accurately against each target session's physical resolution (e.g. 1080p OPPO vs 720p Moto), ensuring pixel-perfect multi-device QA testing and multi-account gaming.
-
-### ⧉ 3. Native Document Picture-in-Picture (PiP) Mode
-* **Floating Always-On-Top Window**: Utilizes the modern browser Document Picture-in-Picture API to pop out any active device screen into a floating desktop window.
-* **Live 60 FPS Mirroring & Full Controls**: Continues mirroring at 60 FPS via `requestAnimationFrame` with complete touch, swipe, click, and bottom navigation dock controls (Back, Home, Recents, Power) active while multitasking across other desktop apps.
-
-### 🔊 4. Web Audio API Streaming & PC / Phone Output Switch
-* **Native Audio Forwarding**: Streams native device audio (Android 11+) directly to the browser without requiring aux cables or Bluetooth pairing.
-* **Audio Destination Toggle (`[ 🔊 Audio: PC ]` / `[ 🔈 Audio: Phone ]`)**: Easily switch audio output destination with one click. When toggled OFF, device audio cleanly plays through the physical phone speaker.
-
-### 📋 5. Bidirectional Real-Time Clipboard Sync
-* **Seamless Two-Way Clipboard**: Copying text on your PC (Windows, macOS, Linux) automatically synchronizes it to the connected Android device clipboard via ADB over WebSocket.
-* **Device-to-PC Sync**: Automatically extracts device clipboard updates on window focus and synchronizes copied text back to your PC clipboard in real time.
-
-### 👁️ 6. Canvas OCR, Vision Triggers & Macro Self-Healing Guard
-* **Client-Side Canvas OCR**: Uses client-side Tesseract.js engine to extract on-screen text and detect UI elements directly from active canvas frames.
-* **Vision-Triggered Steps (`wait_for_text`)**: Macro workflows can pause and wait for specific text, buttons, or dialogs to appear on screen before proceeding.
-* **Self-Healing Fail-Safe Reset**: If a target app or UI element is missing or deleted (e.g. Instagram uninstalled), the macro engine automatically catches the condition, dispatches `KEYCODE_HOME` to safely return Android to normal launcher state, and alerts the user with error diagnostics.
-
-### ⚡ 7. Adaptive Bitrate (ABR) & Latency Monitor
-* **Live Network RTT Telemetry**: Continually tracks round-trip WebSocket latency and render times via real-time ping/pong packet measurements.
-* **Dynamic Quality Scaling**: Automatically scales bitrate and encoding parameters across quality tiers (**Ultra** 1080p @ 60 FPS • 8M, **High** 1080p @ 60 FPS • 5M, **Balanced** 900p @ 45 FPS • 3M, **Low / Jitter Guard** 720p @ 30 FPS • 1.5M) to prevent stutter on unstable wireless ADB links.
-
-### 🤖 8. Per-Device Workflow Automator (Macro Engine)
-* **Isolated Device Workflows**: Each connected Android device maintains its own independent macro timeline. Switching between Device 1 and Device 2 loads that specific device's macros.
-* **Full Gesture & Input Recording**: Records screen taps, swipes, hardware keys (Back, Home, Recents, Power, Volume), and text inputs with exact coordinate mapping and microsecond timing.
-* **Variable Speed & Looping**: Replay macros at 0.5x, 1x, 2x, or 4x speed with single-shot or infinite loop execution.
-* **Persistent Storage & Tagged Export**: Macros automatically persist across reloads in `localStorage` under `aether_macro_${deviceId}`. Export macros to JSON with device-tagged filenames (`aether_macro_${deviceName}_${timestamp}.json`).
-
-### 🎮 9. Contextual Gamepad & Aim Lock Keymapper
-* **Contextual Floating Controls**: Gamepad overlay automatically activates when games are launched or toggled.
-* **WASD Virtual Joystick**: Maps PC keyboard inputs (`W`, `A`, `S`, `D`) to analog thumbstick gestures on the Android display.
-* **F1 Aim Lock Mode**: Press `F1` to lock the mouse cursor inside the phone viewport for native FPS/third-person shooter mouse aiming.
-* **Action Buttons**: Floating on-screen buttons mapped to customizable touch coordinates.
-
-### 📦 10. Drag & Drop APK Sideloading & Media Drop
-* **Drag-and-Drop APK Installation**: Simply drop `.apk` files anywhere onto the device canvas to automatically trigger silent ADB installation (`adb install -r`).
-* **Instant Media Transfer**: Drop images, videos, audio, or documents directly onto the canvas to upload them to `/sdcard/Download/` and fire an automatic `MEDIA_SCANNER_SCAN_FILE` broadcast so they appear immediately in Android's gallery.
-
-### 🌑 11. OLED Privacy Mode / Screen Blanking
-* One-click hardware screen blanking turns off / blacks out the physical smartphone OLED screen while maintaining full 60 FPS mirror and touch interactivity on the web dashboard.
-* Saves device battery, reduces thermals, and prevents shoulder surfing.
-
-### ⚡ 12. Wired & Wireless ADB Connectivity
-* Seamless support for both USB-cabled devices and wireless ADB over TCP/IP (`adb connect`).
-* Automatic reconnection and dynamic device enumeration.
-
-### 💎 13. Ultra-Realistic Glassmorphic UI & Diagnostics
-* Futuristic cyberpunk/glassmorphism interface with ambient edge lighting and device chassis.
-* Real-time telemetry diagnostics: live FPS counter, resolution telemetry, frame render time, and system logs.
+High-performance, ultra-low-latency pure-web Android screen mirroring and multi-device workstation.
 
 ---
 
 ## 📋 System Requirements
 
-* **Computer**: Linux, macOS, or Windows.
-* **Browser**: Any modern browser supporting WebCodecs (Google Chrome, Microsoft Edge, Mozilla Firefox 130+, Safari 16.4+, or Chromium-based browsers).
-* **Node.js**: v18.0.0 or higher (v20+ recommended).
-* **Android Device**: Android 5.0 (Lollipop) or higher with USB Debugging enabled.
+* **Operating System**: Linux (x86_64), macOS (Intel / Apple Silicon), or Windows 10/11.
+* **Browser**: Any modern browser supporting WebCodecs (Google Chrome, Microsoft Edge, Brave, Chromium).
+* **Node.js**: v18.0.0 or higher.
+* **Android Device**: Android 5.0+ with USB Debugging enabled.
 
 ---
 
-## ⚡ Quick Start
+## 📱 Preparing Your Android Device
+
+1. **Enable Developer Options**:
+   - Go to **Settings** → **About Phone** → Tap **Build Number** 7 times until you see *"You are now a developer!"*.
+2. **Enable USB Debugging**:
+   - Go to **Settings** → **System** / **Developer Options** → Toggle **USB Debugging** ON.
+3. **Connect & Authorize**:
+   - Connect your phone to your computer via USB.
+   - When prompted on your phone screen, check **"Always allow from this computer"** and tap **Allow**.
+
+---
+
+## ⚡ Installation & Setup
 
 ### 1. Clone the Repository
 ```bash
@@ -127,121 +36,49 @@ cd Android_Scrcpy
 ### 2. Run the Unified Installer
 ```bash
 chmod +x install.sh
-./install.sh
+./install.sh --keep-source
 ```
 
-> **What `install.sh` does automatically across platforms:**
-> - **OS & Toolchain Detection**: Automatically identifies `Linux`, `macOS`, or `Windows` (Git Bash, MSYS2, WSL, Cygwin).
-> - **ADB & Agent Verification**: Automatically downloads and installs Google Platform-Tools (`adb` / `adb.exe`) and `scrcpy-server.jar` tailored to your platform.
-> - **Production Build**: Installs dependencies and compiles the Next.js production build (`npm run build`).
-> - **System & App Launcher Integration**:
->   - **Linux**: Deploys to `~/.local/share/aether-mirror`, installs `~/.local/share/applications/aether-mirror.desktop`, and adds `~/.local/bin/aether-mirror`.
->   - **macOS**: Creates native `~/Applications/Aether Mirror.app` bundle (accessible in Spotlight, Launchpad, and Applications folder) and CLI command `aether-mirror`.
->   - **Windows**: Deploys to `%LOCALAPPDATA%\AetherMirror`, generates `Aether Mirror.lnk` on your **Desktop** and **Start Menu**, and creates `start.bat`.
-> - **Clean Uninstallation**: Installs `uninstallation.sh` and Windows `uninstallation.bat` for 1-click removal.
-> - **Auto Cleanup**: Cleans up the temporary source installer folder. Pass `--keep-source` if you wish to preserve the development repository.
+The installer automatically verifies platform tools, installs dependencies, builds the production application, and creates native desktop shortcuts for your operating system.
 
-### 3. Launching the Application
+---
 
-#### 🐧 Linux
+## 🚀 Launching Aether Mirror
+
+### 🐧 Linux
 * **App Launcher**: Search for **"Aether Mirror"** in your application launcher or dock.
 * **Terminal**: Run `aether-mirror` from any shell.
 * **Direct**: Run `~/.local/share/aether-mirror/start.sh`.
 
-#### 🍎 macOS
+### 🍎 macOS
 * **Spotlight / Launchpad**: Press `Cmd + Space` and search for **"Aether Mirror"**, or open it from Launchpad.
 * **Terminal**: Run `aether-mirror`.
 * **Direct**: Open `~/Applications/Aether Mirror.app`.
 
-#### 🪟 Windows
+### 🪟 Windows
 * **Desktop Shortcut**: Double-click **`Aether Mirror.lnk`** on your Desktop.
 * **Start Menu**: Search for **"Aether Mirror"** in the Windows Start Menu.
 * **Batch Launcher**: Double-click `%LOCALAPPDATA%\AetherMirror\start.bat`.
-
-> **Note on Windows Desktop Shortcut (.lnk):**
-> If you are setting up manually or need to regenerate the Windows desktop shortcut:
-> 1. Open PowerShell and run:
->    ```powershell
->    powershell -ExecutionPolicy Bypass -File "%LOCALAPPDATA%\AetherMirror\create_desktop_shortcut.ps1"
->    ```
-> 2. Or right-click `%LOCALAPPDATA%\AetherMirror\start.bat` -> **Send to** -> **Desktop (create shortcut)**, right-click the new shortcut -> **Properties** -> **Change Icon** -> select `public\icon.ico`.
 
 ---
 
 ## 🗑️ Uninstallation
 
-### 🐧 Linux & 🍎 macOS
-Run the unified uninstaller script to remove all app files, desktop shortcuts, and icons:
-```bash
-# Linux
-~/.local/share/aether-mirror/uninstallation.sh
-
-# macOS
-~/Applications/Aether\ Mirror.app/Contents/Resources/app/uninstallation.sh
-```
-
-### 🪟 Windows
-Double-click `uninstallation.bat` located inside your installation directory:
-```cmd
-%LOCALAPPDATA%\AetherMirror\uninstallation.bat
-```
-Or run `uninstallation.sh` via Git Bash / WSL. This terminates running server processes, removes Desktop and Start Menu `.lnk` shortcuts, and purges application files.
+* **Linux**:
+  ```bash
+  ~/.local/share/aether-mirror/uninstallation.sh
+  ```
+* **macOS**:
+  ```bash
+  ~/Applications/Aether\ Mirror.app/Contents/Resources/app/uninstallation.sh
+  ```
+* **Windows**:
+  Run `%LOCALAPPDATA%\AetherMirror\uninstallation.bat` or run `uninstallation.sh` in Git Bash.
 
 ---
 
-## 📱 Preparing Your Android Device
+## 📄 License & Proprietary Notice
 
-1. **Enable Developer Options**:
-   - Go to **Settings** -> **About Phone** -> Tap **Build Number** 7 times until you see *"You are now a developer!"*.
-2. **Enable USB Debugging**:
-   - Go to **Settings** -> **System** / **Developer Options** -> Enable **USB Debugging**.
-3. **Connect & Authorize**:
-   - Connect your phone via USB cable.
-   - On the phone screen, select **"Always allow from this computer"** and tap **Allow**.
+**Copyright © 2026 Prajith. All Rights Reserved.**
 
----
-
-## 🎮 Interaction & Controls Reference
-
-| Control | Action |
-| :--- | :--- |
-| **Left Click & Drag** | Tap, select, swipe, or flick on the device canvas |
-| **Right Click** | Triggers Android **Back** (`KEYCODE_BACK`) |
-| **Middle Click** | Triggers Android **Home** (`KEYCODE_HOME`) |
-| **Keyboard Forwarding** | Click the canvas and type on your computer keyboard to input text on Android |
-| **Navigation Dock** | Dedicated buttons for **Back**, **Home**, and **Recents** (App Switcher) |
-| **Hardware Buttons** | Dedicated controls for **Power**, **Volume Up**, and **Volume Down** |
-| **OLED Privacy Mode** | Blacks out phone display while continuing to mirror on desktop |
-| **Workflow Automator** | Record, replay, loop, delete, import, and export automated device macros |
-| **WASD / Gamepad** | On-screen virtual joystick and floating gaming keys |
-| **F1 Key** | Toggle Aim Lock mouse capture for mobile games |
-| **File Drag & Drop** | Drop `.apk` to install; drop images/videos/documents to push to `/sdcard/Download/` |
-
----
-
-## 🛠️ Development & Testing
-
-```bash
-# Start development server with hot-reloading
-npm run dev
-
-# Compile production Next.js bundle and verify TypeScript types
-npm run build
-
-# Start production server
-npm start
-```
-
-### Automated End-to-End Smoke Test Suite
-The project includes an automated end-to-end smoke test suite verifying all 11 critical layers:
-1. Environment & ADB binary dependencies.
-2. Authorized Android hardware detection.
-3. Next.js HTTP dashboard health (HTTP 200).
-4. WebSocket handshake on `/ws`.
-5. WebSocket control protocol (`get-devices`).
-6. 60 FPS hardware mirror streaming & H.264 packet delivery.
-7. Input gestures (Wake Key, Tap, Swipe flick).
-8. Advanced Features Pipeline (ABR Ping/Pong, Audio Toggle, Bidirectional Clipboard Sync, Multi-Box Proportional Scaling, Refresh stability).
-9. Stream teardown & port release (`stop-stream`).
-10. Android system stability & kernel health.
-11. Desktop App Launcher (`.desktop`), `~/.local` deployment, uninstaller & project cleanup lifecycle.
+This software is **Proprietary and Confidential**. Unauthorized copying, distribution, modification, reverse engineering, decompilation, public recreation, or commercial exploitation of this codebase or its underlying concepts is strictly prohibited without explicit prior written permission from the author.
