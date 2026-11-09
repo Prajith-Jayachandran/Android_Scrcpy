@@ -1003,26 +1003,36 @@ export default function Home() {
           )}
         </div>
 
-        {/* Bottom Status Pill */}
-        <div className="mt-2 flex items-center gap-3 text-[11px] text-slate-400 ultra-glass px-4 py-1.5 rounded-full border border-white/5">
-          <span className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
-            <span>Parallel Hardware Decoders Active</span>
-          </span>
-          <span className="text-slate-600">•</span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
-            <span>Instantaneous 0ms Tab Switching</span>
-          </span>
-          {devices.length > 1 && (
-            <>
-              <span className="text-slate-600">•</span>
-              <span className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                <span>Side-by-Side Dual Mirror Available</span>
-              </span>
-            </>
-          )}
+        {/* Bottom Status Pill & Engineering Watermark */}
+        <div className="mt-2 flex flex-col items-center gap-1.5 z-10 select-none">
+          <div className="flex items-center gap-3 text-[11px] text-slate-400 ultra-glass px-4 py-1.5 rounded-full border border-white/5 shadow-sm">
+            <span className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
+              <span>Parallel Hardware Decoders Active</span>
+            </span>
+            <span className="text-slate-600">•</span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+              <span>Instantaneous 0ms Tab Switching</span>
+            </span>
+            {devices.length > 1 && (
+              <>
+                <span className="text-slate-600">•</span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <span>Side-by-Side Dual Mirror Available</span>
+                </span>
+              </>
+            )}
+          </div>
+
+          {/* Proprietary Engineering Watermark */}
+          <div className="text-[10px] tracking-wider uppercase font-mono text-slate-400/80 flex items-center gap-1.5">
+            <span>This tool is engineered by</span>
+            <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-indigo-300 via-cyan-300 to-purple-300 tracking-normal px-1.5 py-0.5 rounded bg-white/5 border border-white/10 shadow-sm">
+              Prajith-Jayachandran
+            </span>
+          </div>
         </div>
       </section>
 
