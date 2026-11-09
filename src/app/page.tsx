@@ -46,6 +46,7 @@ export default function Home() {
   // Feature #3: Context-Aware Game Detection State
   const [isGameActive, setIsGameActive] = useState<boolean>(false);
   const [activePackage, setActivePackage] = useState<string>('');
+  const manualGamepadRef = useRef<boolean>(false);
 
   // USB Multi-Device Link Pop-up Modal State
   const [newUsbModalOpen, setNewUsbModalOpen] = useState<boolean>(false);
@@ -131,11 +132,13 @@ export default function Home() {
   );
 
   const rawTap = useCallback(
-    (targetDeviceId: string, x: number, y: number) => {
+    (targetDeviceId: string, x: number, y: number, relX?: number, relY?: number) => {
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !targetDeviceId) return;
       const meta = deviceMetas[targetDeviceId];
-      const normX = meta && meta.width > 0 ? x / meta.width : undefined;
-      const normY = meta && meta.height > 0 ? y / meta.height : undefined;
+      const targetW = meta?.physicalWidth || meta?.width;
+      const targetH = meta?.physicalHeight || meta?.height;
+      const normX = typeof relX === 'number' ? relX : (targetW ? x / targetW : undefined);
+      const normY = typeof relY === 'number' ? relY : (targetH ? y / targetH : undefined);
       wsRef.current.send(
         JSON.stringify({
           type: 'tap',
@@ -152,13 +155,27 @@ export default function Home() {
   );
 
   const rawSwipe = useCallback(
-    (targetDeviceId: string, x1: number, y1: number, x2: number, y2: number, duration: number) => {
+    (
+      targetDeviceId: string,
+      x1: number,
+      y1: number,
+      x2: number,
+      y2: number,
+      duration: number = 150,
+      normX1?: number,
+      normY1?: number,
+      normX2?: number,
+      normY2?: number
+    ) => {
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !targetDeviceId) return;
       const meta = deviceMetas[targetDeviceId];
-      const normX1 = meta && meta.width > 0 ? x1 / meta.width : undefined;
-      const normY1 = meta && meta.height > 0 ? y1 / meta.height : undefined;
-      const normX2 = meta && meta.width > 0 ? x2 / meta.width : undefined;
-      const normY2 = meta && meta.height > 0 ? y2 / meta.height : undefined;
+      const targetW = meta?.physicalWidth || meta?.width;
+      const targetH = meta?.physicalHeight || meta?.height;
+      const nX1 = typeof normX1 === 'number' ? normX1 : (targetW ? x1 / targetW : undefined);
+      const nY1 = typeof normY1 === 'number' ? normY1 : (targetH ? y1 / targetH : undefined);
+      const nX2 = typeof normX2 === 'number' ? normX2 : (targetW ? x2 / targetW : undefined);
+      const nY2 = typeof normY2 === 'number' ? normY2 : (targetH ? y2 / targetH : undefined);
+
       wsRef.current.send(
         JSON.stringify({
           type: 'swipe',
@@ -167,10 +184,10 @@ export default function Home() {
           y1,
           x2,
           y2,
-          normX1,
-          normY1,
-          normX2,
-          normY2,
+          normX1: nX1,
+          normY1: nY1,
+          normX2: nX2,
+          normY2: nY2,
           duration,
           syncAll,
         })
@@ -243,21 +260,32 @@ export default function Home() {
   );
 
   const handleTapForDevice = useCallback(
-    (deviceId: string, x: number, y: number) => {
+    (deviceId: string, x: number, y: number, relX?: number, relY?: number) => {
       if (deviceId === selectedDeviceId) {
         macroRecorder.recordAction({ type: 'tap', x, y });
       }
-      rawTap(deviceId, x, y);
+      rawTap(deviceId, x, y, relX, relY);
     },
     [macroRecorder, rawTap, selectedDeviceId]
   );
 
   const handleSwipeForDevice = useCallback(
-    (deviceId: string, x1: number, y1: number, x2: number, y2: number, duration: number) => {
+    (
+      deviceId: string,
+      x1: number,
+      y1: number,
+      x2: number,
+      y2: number,
+      duration: number,
+      normX1?: number,
+      normY1?: number,
+      normX2?: number,
+      normY2?: number
+    ) => {
       if (deviceId === selectedDeviceId) {
         macroRecorder.recordAction({ type: 'swipe', x1, y1, x2, y2, duration });
       }
-      rawSwipe(deviceId, x1, y1, x2, y2, duration);
+      rawSwipe(deviceId, x1, y1, x2, y2, duration, normX1, normY1, normX2, normY2);
     },
     [macroRecorder, rawSwipe, selectedDeviceId]
   );
@@ -308,6 +336,18 @@ export default function Home() {
 
           // Decodes directly to the corresponding device's independent decoder & canvas in parallel
           decodeChunk(targetDevId, naluPayload, isKeyFrame, isConfig, pts);
+        } else if (view[0] === 0x02) {
+          // Parallel Binary Audio Packet from Server (Web Audio API Stream)
+          const idLen = view[1];
+          let targetDevId = selectedDeviceIdRef.current;
+          let pcmPayload: Uint8Array;
+          if (idLen > 0 && view.length > 10 + idLen) {
+            targetDevId = new TextDecoder().decode(view.subarray(2, 2 + idLen));
+            pcmPayload = view.subarray(10 + idLen);
+          } else {
+            pcmPayload = view.subarray(2);
+          }
+          audio.feedAudioChunk(targetDevId, pcmPayload);
         }
         return;
       }
@@ -403,8 +443,12 @@ export default function Home() {
 
           case 'game-mode-status': {
             if (msg.deviceId === selectedDeviceIdRef.current) {
-              setIsGameActive(msg.isGame);
               setActivePackage(msg.package);
+              if (msg.isGame) {
+                setIsGameActive(true);
+              } else if (!manualGamepadRef.current) {
+                setIsGameActive(false);
+              }
             }
             break;
           }
@@ -509,6 +553,8 @@ export default function Home() {
     (targetId?: string) => {
       const devId = targetId || selectedDeviceId;
       if (!wsRef.current || !devId) return;
+      manualGamepadRef.current = false;
+      setIsGameActive(false);
       wsRef.current.send(
         JSON.stringify({
           type: 'stop-stream',
@@ -522,6 +568,8 @@ export default function Home() {
   // Dropdown Selection: Switches active tab WITHOUT auto-starting mirroring
   const handleSelectDeviceFromDropdown = useCallback((deviceId: string) => {
     if (!deviceId) return;
+    manualGamepadRef.current = false;
+    setIsGameActive(false);
     setSelectedDeviceId(deviceId);
   }, []);
 
@@ -529,10 +577,42 @@ export default function Home() {
   const handleSelectTab = useCallback(
     (newDeviceId: string) => {
       if (newDeviceId === selectedDeviceId) return;
+      manualGamepadRef.current = false;
+      setIsGameActive(false);
       setSelectedDeviceId(newDeviceId);
     },
     [selectedDeviceId]
   );
+
+  // Manual Gamepad Toggle & Close Handlers
+  const handleToggleGamepad = useCallback(() => {
+    const nextState = !isGameActive;
+    manualGamepadRef.current = nextState;
+    setIsGameActive(nextState);
+    addLog(nextState ? '🎮 Gamepad Overlay manually ENABLED.' : '🎮 Gamepad Overlay manually DISABLED.');
+  }, [isGameActive, addLog]);
+
+  const handleCloseGamepad = useCallback(() => {
+    manualGamepadRef.current = false;
+    setIsGameActive(false);
+    addLog('🎮 Gamepad Overlay closed.');
+  }, [addLog]);
+
+  // Synchronized Multi-Boxing Toggle (Replicates touch/key inputs across all devices)
+  const handleToggleSync = useCallback(() => {
+    const nextState = !syncAll;
+    setSyncAll(nextState);
+    if (nextState) {
+      devices.forEach((d) => {
+        if (d.status === 'device' && !streamingDeviceIds.has(d.id)) {
+          startStream(d.id);
+        }
+      });
+      addLog('⚡ Synchronized Multi-Boxing ENABLED: Inputs replicated across all devices.');
+    } else {
+      addLog('Synchronized Multi-Boxing DISABLED.');
+    }
+  }, [syncAll, devices, streamingDeviceIds, startStream, addLog]);
 
   // Confirm Pop-up: Spawn New USB Link Tab & Start Mirroring
   const handleConfirmNewUsbLink = useCallback(() => {
@@ -749,12 +829,13 @@ export default function Home() {
           privacyMode={privacyMode}
           viewMode={viewMode}
           isAudioToPc={audio.isAudioToPc}
+          audioLevel={audio.audioLevel}
           isPipActive={pip.isPipActive}
           isPipSupported={pip.isPipSupported}
           latencyMs={abr.latencyMs}
           qualityTier={abr.currentTier}
           onSelectTab={handleSelectTab}
-          onToggleSync={() => setSyncAll(!syncAll)}
+          onToggleSync={handleToggleSync}
           onTogglePrivacy={togglePrivacyMode}
           onToggleViewMode={() => setViewMode((prev) => (prev === 'tabs' ? 'split' : 'tabs'))}
           onToggleAudio={audio.toggleAudioDestination}
@@ -791,11 +872,13 @@ export default function Home() {
                       meta={deviceMetas[device.id] || null}
                       isGameActive={isSelected && isGameActive}
                       activePackage={activePackage}
-                      onTap={(x, y) => handleTapForDevice(device.id, x, y)}
-                      onSwipe={(x1, y1, x2, y2, d) => handleSwipeForDevice(device.id, x1, y1, x2, y2, d)}
+                      onTap={(x, y, rx, ry) => handleTapForDevice(device.id, x, y, rx, ry)}
+                      onSwipe={(x1, y1, x2, y2, d, nx1, ny1, nx2, ny2) =>
+                        handleSwipeForDevice(device.id, x1, y1, x2, y2, d, nx1, ny1, nx2, ny2)
+                      }
                       onSendKey={(code) => rawSendKey(device.id, code)}
                       onSendText={(text) => rawSendText(device.id, text)}
-                      onCloseGamepad={() => setIsGameActive(false)}
+                      onCloseGamepad={handleCloseGamepad}
                       onNotifyLog={addLog}
                     />
                   </div>
@@ -823,11 +906,13 @@ export default function Home() {
                       meta={deviceMetas[device.id] || null}
                       isGameActive={isSelected && isGameActive}
                       activePackage={activePackage}
-                      onTap={(x, y) => handleTapForDevice(device.id, x, y)}
-                      onSwipe={(x1, y1, x2, y2, d) => handleSwipeForDevice(device.id, x1, y1, x2, y2, d)}
+                      onTap={(x, y, rx, ry) => handleTapForDevice(device.id, x, y, rx, ry)}
+                      onSwipe={(x1, y1, x2, y2, d, nx1, ny1, nx2, ny2) =>
+                        handleSwipeForDevice(device.id, x1, y1, x2, y2, d, nx1, ny1, nx2, ny2)
+                      }
                       onSendKey={sendKey}
                       onSendText={sendText}
-                      onCloseGamepad={() => setIsGameActive(false)}
+                      onCloseGamepad={handleCloseGamepad}
                       onNotifyLog={addLog}
                     />
                   </div>
@@ -870,7 +955,7 @@ export default function Home() {
           onSendKey={sendKey}
           onSendText={sendText}
           onClipboardPaste={handleClipboardPaste}
-          onToggleGamepad={() => setIsGameActive(!isGameActive)}
+          onToggleGamepad={handleToggleGamepad}
           onTogglePrivacy={togglePrivacyMode}
         />
 

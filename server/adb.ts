@@ -216,7 +216,9 @@ export class AdbManager {
       '3.1',
       'tunnel_forward=true',
       'video=true',
-      'audio=false',
+      'audio=true',
+      'audio_codec=raw',
+      'audio_dup=true',
       'control=false',
       'send_dummy_byte=true',
       'send_codec_meta=true',
@@ -571,6 +573,49 @@ export class AdbManager {
         }
         resolve('');
       });
+    });
+  }
+
+  // --------------------------------------------------------------------------
+  // Audio Destination Control: Mute / Unmute physical device speaker
+  // --------------------------------------------------------------------------
+  private savedDeviceVolumes: Map<string, number> = new Map();
+
+  public async muteDeviceSpeaker(deviceId: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      execFile(
+        this.adbPath,
+        ['-s', deviceId, 'shell', 'cmd', 'media_session', 'volume', '--stream', '3', '--get'],
+        (_err, stdout) => {
+          if (stdout) {
+            const match = stdout.match(/volume is (\d+)/);
+            if (match) {
+              const vol = parseInt(match[1], 10);
+              if (vol > 0) this.savedDeviceVolumes.set(deviceId, vol);
+            }
+          }
+          execFile(
+            this.adbPath,
+            ['-s', deviceId, 'shell', 'cmd', 'media_session', 'volume', '--stream', '3', '--set', '0'],
+            (setErr) => {
+              resolve(!setErr);
+            }
+          );
+        }
+      );
+    });
+  }
+
+  public async unmuteDeviceSpeaker(deviceId: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const prev = this.savedDeviceVolumes.get(deviceId) || 80;
+      execFile(
+        this.adbPath,
+        ['-s', deviceId, 'shell', 'cmd', 'media_session', 'volume', '--stream', '3', '--set', prev.toString()],
+        (err) => {
+          resolve(!err);
+        }
+      );
     });
   }
 }

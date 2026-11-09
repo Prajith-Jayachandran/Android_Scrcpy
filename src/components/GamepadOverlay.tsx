@@ -2,10 +2,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Gamepad2, Crosshair, Move, Settings2, X, Lock, Unlock, Play } from 'lucide-react';
-import { GamepadButtonConfig } from '@/lib/types';
+import { GamepadButtonConfig, StreamMeta } from '@/lib/types';
 
 interface GamepadOverlayProps {
   isVisible: boolean;
+  meta?: StreamMeta | null;
   activePackage?: string;
   onSendKey: (keyCode: number) => void;
   onTap: (x: number, y: number) => void;
@@ -22,6 +23,7 @@ const DEFAULT_BUTTONS: GamepadButtonConfig[] = [
 
 export const GamepadOverlay: React.FC<GamepadOverlayProps> = ({
   isVisible,
+  meta,
   activePackage,
   onSendKey,
   onTap,
@@ -34,6 +36,10 @@ export const GamepadOverlay: React.FC<GamepadOverlayProps> = ({
   const [activeKeys, setActiveKeys] = useState<Set<string>>(new Set());
 
   const overlayRef = useRef<HTMLDivElement>(null);
+
+  // Compute dynamic device screen width and height
+  const screenW = meta?.physicalWidth || meta?.width || 1080;
+  const screenH = meta?.physicalHeight || meta?.height || 2373;
 
   // Load custom layout from localStorage
   useEffect(() => {
@@ -57,6 +63,15 @@ export const GamepadOverlay: React.FC<GamepadOverlayProps> = ({
     if (!isVisible) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept if user is typing in an input field
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target as HTMLElement)?.isContentEditable
+      ) {
+        return;
+      }
+
       // Toggle aim lock with F1 or ~
       if (e.key === 'F1' || e.key === '`') {
         e.preventDefault();
@@ -71,22 +86,24 @@ export const GamepadOverlay: React.FC<GamepadOverlayProps> = ({
       const btn = buttons.find((b) => b.key.toLowerCase() === key);
       if (btn) {
         // Trigger tap at mapped percentage
-        const screenW = 1080;
-        const screenH = 2373;
-        const targetX = (btn.xPercent / 100) * screenW;
-        const targetY = (btn.yPercent / 100) * screenH;
+        const targetX = Math.round((btn.xPercent / 100) * screenW);
+        const targetY = Math.round((btn.yPercent / 100) * screenH);
         onTap(targetX, targetY);
       }
 
-      // WASD Directional Touch Movement
+      // Dynamic WASD Directional Touch Movement relative to device resolution
+      const joyCenterX = Math.round(screenW * 0.22);
+      const joyCenterY = Math.round(screenH * 0.78);
+      const joyDelta = Math.round(Math.min(screenW, screenH) * 0.08);
+
       if (key === 'w') {
-        onSwipe(250, 1800, 250, 1600, 120); // Move Up
+        onSwipe(joyCenterX, joyCenterY, joyCenterX, joyCenterY - joyDelta, 120); // Move Up
       } else if (key === 's') {
-        onSwipe(250, 1600, 250, 1800, 120); // Move Down
+        onSwipe(joyCenterX, joyCenterY, joyCenterX, joyCenterY + joyDelta, 120); // Move Down
       } else if (key === 'a') {
-        onSwipe(250, 1700, 150, 1700, 120); // Move Left
+        onSwipe(joyCenterX, joyCenterY, joyCenterX - joyDelta, joyCenterY, 120); // Move Left
       } else if (key === 'd') {
-        onSwipe(150, 1700, 250, 1700, 120); // Move Right
+        onSwipe(joyCenterX, joyCenterY, joyCenterX + joyDelta, joyCenterY, 120); // Move Right
       }
     };
 
@@ -105,7 +122,7 @@ export const GamepadOverlay: React.FC<GamepadOverlayProps> = ({
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [isVisible, buttons, onTap, onSwipe]);
+  }, [isVisible, buttons, onTap, onSwipe, screenW, screenH]);
 
   // Mouse Aim Lock (Pointer Lock API)
   const togglePointerLock = () => {
@@ -130,8 +147,6 @@ export const GamepadOverlay: React.FC<GamepadOverlayProps> = ({
       const dx = e.movementX;
       const dy = e.movementY;
       if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
-        const screenW = 1080;
-        const screenH = 2373;
         // Camera swipe centered in right half of screen
         const centerX = Math.round(screenW * 0.72);
         const centerY = Math.round(screenH * 0.52);
@@ -151,7 +166,7 @@ export const GamepadOverlay: React.FC<GamepadOverlayProps> = ({
       document.removeEventListener('pointerlockchange', handlePointerLockChange);
       document.removeEventListener('mousemove', handleMouseMove);
     };
-  }, [onSwipe]);
+  }, [onSwipe, screenW, screenH]);
 
   // Don't render anything if game is not active
   if (!isVisible) return null;
@@ -266,9 +281,9 @@ export const GamepadOverlay: React.FC<GamepadOverlayProps> = ({
                 : 'bg-black/50 backdrop-blur-md text-slate-200 border-white/20 hover:border-indigo-400 hover:text-white'
             }`}
             onClick={() => {
-              const screenW = 1080;
-              const screenH = 2373;
-              onTap((btn.xPercent / 100) * screenW, (btn.yPercent / 100) * screenH);
+              const targetX = Math.round((btn.xPercent / 100) * screenW);
+              const targetY = Math.round((btn.yPercent / 100) * screenH);
+              onTap(targetX, targetY);
             }}
           >
             <span className="text-[10px] font-mono leading-none">{btn.label}</span>

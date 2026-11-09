@@ -15,8 +15,18 @@ interface ScreenViewerProps {
   isCompact?: boolean;
   isGameActive?: boolean;
   activePackage?: string;
-  onTap: (x: number, y: number) => void;
-  onSwipe: (x1: number, y1: number, x2: number, y2: number, duration: number) => void;
+  onTap: (x: number, y: number, relX?: number, relY?: number) => void;
+  onSwipe: (
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    duration: number,
+    normX1?: number,
+    normY1?: number,
+    normX2?: number,
+    normY2?: number
+  ) => void;
   onSendKey: (keyCode: number) => void;
   onSendText: (text: string) => void;
   onCloseGamepad?: () => void;
@@ -44,8 +54,8 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
   const localCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const canvasRef = externalCanvasRef || localCanvasRef;
 
-  const dragStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
-  const lastCoordsRef = useRef<{ x: number; y: number } | null>(null);
+  const dragStartRef = useRef<{ x: number; y: number; relX: number; relY: number; time: number } | null>(null);
+  const lastCoordsRef = useRef<{ x: number; y: number; relX: number; relY: number } | null>(null);
   const [isFocused, setIsFocused] = useState(false);
 
   // Register canvas with multi-device decoder pool
@@ -78,10 +88,10 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
   // Exact 1:1 mapping from canvas click coordinates to physical device screen resolution
   const mapCoordinates = (clientX: number, clientY: number) => {
     const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
+    if (!canvas) return { x: 0, y: 0, relX: 0, relY: 0 };
 
     const rect = canvas.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return { x: 0, y: 0 };
+    if (rect.width === 0 || rect.height === 0) return { x: 0, y: 0, relX: 0, relY: 0 };
 
     const relX = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     const relY = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
@@ -93,6 +103,8 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
     return {
       x: Math.round(relX * targetWidth),
       y: Math.round(relY * targetHeight),
+      relX,
+      relY,
     };
   };
 
@@ -138,12 +150,12 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
           // Swiped UP on trackpad -> Scroll DOWN on phone
           const startY = Math.min(targetH - 180, cy + Math.round(swipeDist / 2));
           const endY = Math.max(180, cy - Math.round(swipeDist / 2));
-          onSwipeRef.current(cx, startY, cx, endY, 150);
+          onSwipeRef.current(cx, startY, cx, endY, 150, cx / targetW, startY / targetH, cx / targetW, endY / targetH);
         } else {
           // Swiped DOWN on trackpad -> Scroll UP on phone
           const startY = Math.max(180, cy - Math.round(swipeDist / 2));
           const endY = Math.min(targetH - 180, cy + Math.round(swipeDist / 2));
-          onSwipeRef.current(cx, startY, cx, endY, 150);
+          onSwipeRef.current(cx, startY, cx, endY, 150, cx / targetW, startY / targetH, cx / targetW, endY / targetH);
         }
       } else {
         // Horizontal swipe (Left / Right)
@@ -152,12 +164,12 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
           // Swiped LEFT on trackpad -> Scroll RIGHT on phone
           const startX = Math.min(targetW - 80, cx + Math.round(swipeDistX / 2));
           const endX = Math.max(80, cx - Math.round(swipeDistX / 2));
-          onSwipeRef.current(startX, cy, endX, cy, 150);
+          onSwipeRef.current(startX, cy, endX, cy, 150, startX / targetW, cy / targetH, endX / targetW, cy / targetH);
         } else {
           // Swiped RIGHT on trackpad -> Scroll LEFT on phone
           const startX = Math.max(80, cx - Math.round(swipeDistX / 2));
           const endX = Math.min(targetW - 80, cx + Math.round(swipeDistX / 2));
-          onSwipeRef.current(startX, cy, endX, cy, 150);
+          onSwipeRef.current(startX, cy, endX, cy, 150, startX / targetW, cy / targetH, endX / targetW, cy / targetH);
         }
       }
     };
@@ -191,6 +203,8 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
     dragStartRef.current = {
       x: coords.x,
       y: coords.y,
+      relX: coords.relX,
+      relY: coords.relY,
       time: Date.now(),
     };
     lastCoordsRef.current = coords;
@@ -217,10 +231,10 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
 
     // Deadzone: under 30 physical pixels is a clean TAP.
     if (distance < 30) {
-      onTap(start.x, start.y);
+      onTap(start.x, start.y, start.relX, start.relY);
     } else {
       // Clean 150ms swipe gesture recognized by Android WindowManager as a fast scroll fling
-      onSwipe(start.x, start.y, end.x, end.y, 150);
+      onSwipe(start.x, start.y, end.x, end.y, 150, start.relX, start.relY, end.relX, end.relY);
     }
 
     dragStartRef.current = null;
@@ -400,6 +414,7 @@ export const ScreenViewer: React.FC<ScreenViewerProps> = ({
           {/* Feature #3: Context-Aware Gamepad Overlay (Renders ONLY when game is active) */}
           <GamepadOverlay
             isVisible={isGameActive}
+            meta={meta}
             activePackage={activePackage}
             onSendKey={onSendKey}
             onTap={onTap}

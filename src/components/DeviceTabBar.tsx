@@ -23,6 +23,7 @@ interface DeviceTabBarProps {
   privacyMode: boolean;
   viewMode: 'tabs' | 'split';
   isAudioToPc?: boolean;
+  audioLevel?: number;
   isPipActive?: boolean;
   isPipSupported?: boolean;
   latencyMs?: number;
@@ -43,6 +44,7 @@ export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
   privacyMode,
   viewMode,
   isAudioToPc = false,
+  audioLevel = 0,
   isPipActive = false,
   isPipSupported = true,
   latencyMs,
@@ -154,6 +156,22 @@ export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
               <>
                 <Volume2 className="w-3.5 h-3.5 text-emerald-300" />
                 <span className="hidden sm:inline">Audio: PC</span>
+                {audioLevel > 0 && (
+                  <span className="flex items-center gap-0.5 ml-1">
+                    <span
+                      className="w-1 bg-emerald-400 rounded-full animate-pulse"
+                      style={{ height: `${Math.max(4, Math.min(12, (audioLevel / 100) * 12))}px` }}
+                    />
+                    <span
+                      className="w-1 bg-emerald-400 rounded-full animate-pulse delay-75"
+                      style={{ height: `${Math.max(4, Math.min(10, (audioLevel / 100) * 10))}px` }}
+                    />
+                    <span
+                      className="w-1 bg-emerald-400 rounded-full animate-pulse delay-150"
+                      style={{ height: `${Math.max(4, Math.min(14, (audioLevel / 100) * 14))}px` }}
+                    />
+                  </span>
+                )}
               </>
             ) : (
               <>

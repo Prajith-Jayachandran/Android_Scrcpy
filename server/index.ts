@@ -18,6 +18,7 @@ export interface StreamSession {
   serverProc: any;
   videoSocket: net.Socket | null;
   audioSocket?: net.Socket | null;
+  audioEnabled?: boolean;
   forwardPort: number;
   width?: number;
   height?: number;
@@ -121,6 +122,8 @@ app.prepare().then(() => {
               deviceId,
               serverProc: proc,
               videoSocket: null,
+              audioSocket: null,
+              audioEnabled: false,
               forwardPort,
             };
             activeSessions.set(deviceId, session);
@@ -157,17 +160,22 @@ app.prepare().then(() => {
 
           // Safe, physical-pixel accurate touch tap (Proportional multi-boxing aware)
           case 'tap': {
-            const targetIds = getTargetDeviceIds(msg.deviceId, msg.syncAll);
+            const targetIds = await getTargetDeviceIds(msg.deviceId, msg.syncAll);
             for (const id of targetIds) {
               let tapX = msg.x;
               let tapY = msg.y;
               // If multi-box syncing with normalized coordinates, scale proportionally to target device
               if (msg.syncAll && typeof msg.normX === 'number' && typeof msg.normY === 'number') {
                 const session = activeSessions.get(id);
-                if (session && session.width && session.height) {
-                  tapX = Math.round(msg.normX * session.width);
-                  tapY = Math.round(msg.normY * session.height);
+                let targetW = session?.width;
+                let targetH = session?.height;
+                if (!targetW || !targetH) {
+                  const size = await adb.getDeviceScreenSize(id);
+                  targetW = size.width;
+                  targetH = size.height;
                 }
+                tapX = Math.round(msg.normX * targetW);
+                tapY = Math.round(msg.normY * targetH);
               }
               if (typeof tapX === 'number' && typeof tapY === 'number') {
                 adb.injectTap(id, tapX, tapY);
@@ -178,7 +186,7 @@ app.prepare().then(() => {
 
           // Safe, optimal swipe flick (Proportional multi-boxing aware)
           case 'swipe': {
-            const targetIds = getTargetDeviceIds(msg.deviceId, msg.syncAll);
+            const targetIds = await getTargetDeviceIds(msg.deviceId, msg.syncAll);
             for (const id of targetIds) {
               let x1 = msg.x1;
               let y1 = msg.y1;
@@ -186,12 +194,17 @@ app.prepare().then(() => {
               let y2 = msg.y2;
               if (msg.syncAll && typeof msg.normX1 === 'number' && typeof msg.normY1 === 'number') {
                 const session = activeSessions.get(id);
-                if (session && session.width && session.height) {
-                  x1 = Math.round(msg.normX1 * session.width);
-                  y1 = Math.round(msg.normY1 * session.height);
-                  x2 = Math.round((msg.normX2 ?? msg.normX1) * session.width);
-                  y2 = Math.round((msg.normY2 ?? msg.normY1) * session.height);
+                let targetW = session?.width;
+                let targetH = session?.height;
+                if (!targetW || !targetH) {
+                  const size = await adb.getDeviceScreenSize(id);
+                  targetW = size.width;
+                  targetH = size.height;
                 }
+                x1 = Math.round(msg.normX1 * targetW);
+                y1 = Math.round(msg.normY1 * targetH);
+                x2 = Math.round((msg.normX2 ?? msg.normX1) * targetW);
+                y2 = Math.round((msg.normY2 ?? msg.normY1) * targetH);
               }
               adb.injectSwipe(id, x1, y1, x2, y2, msg.duration || 150);
             }
@@ -199,7 +212,7 @@ app.prepare().then(() => {
           }
 
           case 'key': {
-            const targetIds = getTargetDeviceIds(msg.deviceId, msg.syncAll);
+            const targetIds = await getTargetDeviceIds(msg.deviceId, msg.syncAll);
             for (const id of targetIds) {
               if (typeof msg.code === 'number') {
                 adb.injectKey(id, msg.code);
@@ -209,7 +222,7 @@ app.prepare().then(() => {
           }
 
           case 'text': {
-            const targetIds = getTargetDeviceIds(msg.deviceId, msg.syncAll);
+            const targetIds = await getTargetDeviceIds(msg.deviceId, msg.syncAll);
             for (const id of targetIds) {
               if (msg.text) {
                 adb.injectText(id, msg.text);
@@ -364,11 +377,17 @@ app.prepare().then(() => {
           // Feature #1: Audio Routing Toggle (PC vs Phone Speaker)
           case 'set-audio-stream': {
             if (msg.deviceId) {
-              sendLog(
-                msg.enabled
-                  ? `[Audio]: Routing ${msg.deviceId} audio to PC speakers.`
-                  : `[Audio]: Detached PC audio for ${msg.deviceId}. Audio playing on phone speaker.`
-              );
+              const session = activeSessions.get(msg.deviceId);
+              if (session) {
+                session.audioEnabled = !!msg.enabled;
+              }
+              if (msg.enabled) {
+                await adb.muteDeviceSpeaker(msg.deviceId);
+                sendLog(`[Audio]: Routing ${msg.deviceId} audio to PC speakers (phone speaker muted).`);
+              } else {
+                await adb.unmuteDeviceSpeaker(msg.deviceId);
+                sendLog(`[Audio]: Detached PC audio for ${msg.deviceId}. Audio playing on phone speaker.`);
+              }
             }
             break;
           }
@@ -404,9 +423,17 @@ app.prepare().then(() => {
     });
   });
 
-  function getTargetDeviceIds(requestedId?: string, syncAll?: boolean): string[] {
-    if (syncAll && activeSessions.size > 0) {
-      return Array.from(activeSessions.keys());
+  async function getTargetDeviceIds(requestedId?: string, syncAll?: boolean): Promise<string[]> {
+    if (syncAll) {
+      try {
+        const devices = await adb.getDevices();
+        if (devices.length > 0) {
+          return devices.map((d) => d.id);
+        }
+      } catch (e) {}
+      if (activeSessions.size > 0) {
+        return Array.from(activeSessions.keys());
+      }
     }
     if (requestedId) return [requestedId];
     return [];
@@ -419,10 +446,14 @@ app.prepare().then(() => {
         if (session.videoSocket) {
           session.videoSocket.destroy();
         }
+        if (session.audioSocket) {
+          session.audioSocket.destroy();
+        }
         if (session.serverProc) {
           session.serverProc.kill();
         }
         await adb.removeForward(session.deviceId, session.forwardPort);
+        await adb.unmuteDeviceSpeaker(deviceId);
       } catch (e) {}
       activeSessions.delete(deviceId);
       await adb.killAllScrcpyServers(deviceId);
@@ -461,6 +492,10 @@ app.prepare().then(() => {
 
     socket.connect(port, '127.0.0.1', () => {
       sendLog(`Successfully connected to video stream for ${deviceId}.`);
+      // Connect to audio socket sequentially as required by scrcpy-server protocol
+      setTimeout(() => {
+        connectToScrcpyAudio(deviceId, port, wss, sendLog);
+      }, 150);
     });
 
     socket.on('data', async (chunk: Buffer) => {
@@ -588,6 +623,112 @@ app.prepare().then(() => {
         if (client.readyState === WebSocket.OPEN) {
           client.send(JSON.stringify({ type: 'stream-stopped', deviceId }));
         }
+      }
+    });
+  }
+
+  function connectToScrcpyAudio(
+    deviceId: string,
+    port: number,
+    wss: WebSocketServer,
+    sendLog: (msg: string) => void
+  ) {
+    const socket = new net.Socket();
+    socket.setNoDelay(true);
+
+    const session = activeSessions.get(deviceId);
+    if (session) {
+      session.audioSocket = socket;
+    }
+
+    let buffer = Buffer.alloc(0);
+    let state: 'CODEC_METADATA' | 'PACKET_HEADER' | 'PACKET_PAYLOAD' = 'CODEC_METADATA';
+    let currentPts = 0n;
+    let currentPacketSize = 0;
+
+    socket.connect(port, '127.0.0.1', () => {
+      sendLog(`Successfully connected to audio stream for ${deviceId}.`);
+    });
+
+    socket.on('data', (chunk: Buffer) => {
+      buffer = Buffer.concat([buffer, chunk]);
+
+      let processing = true;
+      while (processing) {
+        switch (state) {
+          case 'CODEC_METADATA': {
+            if (buffer.length >= 4) {
+              const audioCodec = buffer.subarray(0, 4).toString('utf8');
+              sendLog(`Audio Online: [${deviceId}] Codec: ${audioCodec.replace(/\0/g, '')}`);
+              buffer = buffer.subarray(4);
+              state = 'PACKET_HEADER';
+            } else {
+              processing = false;
+            }
+            break;
+          }
+
+          case 'PACKET_HEADER': {
+            if (buffer.length >= 12) {
+              const ptsBigInt = buffer.readBigUInt64BE(0);
+              currentPts = ptsBigInt & ~(3n << 62n);
+              currentPacketSize = buffer.readUInt32BE(8);
+              buffer = buffer.subarray(12);
+              state = 'PACKET_PAYLOAD';
+            } else {
+              processing = false;
+            }
+            break;
+          }
+
+          case 'PACKET_PAYLOAD': {
+            if (buffer.length >= currentPacketSize) {
+              const payload = buffer.subarray(0, currentPacketSize);
+              buffer = buffer.subarray(currentPacketSize);
+
+              const currentSession = activeSessions.get(deviceId);
+              // Forward audio frame when routing to PC is enabled
+              if (!currentSession || currentSession.audioEnabled !== false) {
+                const devIdBuf = Buffer.from(deviceId, 'ascii');
+                const idLen = devIdBuf.length;
+
+                // [0]: 0x02 (Audio packet)
+                // [1]: idLen
+                // [2 .. 2+idLen-1]: Device ID ASCII
+                // [2+idLen .. 9+idLen]: PTS (8 bytes BigUInt64)
+                // [10+idLen ..]: Raw PCM payload (16-bit signed LE stereo, 48000Hz)
+                const msg = Buffer.alloc(10 + idLen + payload.length);
+                msg[0] = 0x02;
+                msg[1] = idLen;
+                devIdBuf.copy(msg, 2);
+                msg.writeBigUInt64BE(currentPts, 2 + idLen);
+                payload.copy(msg, 10 + idLen);
+
+                for (const client of wss.clients) {
+                  if (client.readyState === WebSocket.OPEN) {
+                    client.send(msg);
+                  }
+                }
+              }
+
+              state = 'PACKET_HEADER';
+            } else {
+              processing = false;
+            }
+            break;
+          }
+        }
+      }
+    });
+
+    socket.on('error', (err) => {
+      console.log(`[Audio Socket - ${deviceId}]: ${err.message}`);
+    });
+
+    socket.on('close', () => {
+      const s = activeSessions.get(deviceId);
+      if (s) {
+        s.audioSocket = null;
       }
     });
   }
