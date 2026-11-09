@@ -106,7 +106,7 @@ export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
     (viewMode === 'split' ? 1 : 0);
 
   return (
-    <div className="relative flex items-center justify-between gap-3 px-4 py-2 mb-3 rounded-2xl ultra-glass border border-white/10 w-full max-w-5xl mx-auto shadow-2xl backdrop-blur-xl">
+    <div className="relative z-50 flex items-center justify-between gap-3 px-4 py-2 mb-3 rounded-2xl ultra-glass border border-white/10 w-full max-w-5xl mx-auto shadow-2xl backdrop-blur-xl">
       {/* Primary Bar: Only Device Tabs Visible */}
       <div className="flex-1 flex items-center gap-2 overflow-x-auto py-0.5 no-scrollbar">
         {devices.map((device, index) => {
@@ -121,8 +121,9 @@ export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
           return (
             <button
               key={device.id}
+              type="button"
               onClick={() => onSelectTab(device.id)}
-              className={`group relative flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all duration-200 ${
+              className={`group relative flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all duration-200 cursor-pointer ${
                 isActive
                   ? 'bg-gradient-to-r from-indigo-600/90 to-purple-600/90 text-white shadow-[0_0_20px_rgba(99,102,241,0.5)] border border-indigo-400/50'
                   : 'bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/5'
@@ -160,10 +161,15 @@ export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
       </div>
 
       {/* 3-Line Picker Menu Container (Anchor for absolute dropdown) */}
-      <div className="relative flex-shrink-0" ref={menuRef}>
+      <div
+        className="relative z-50 flex-shrink-0"
+        ref={menuRef}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <button
+          type="button"
           onClick={() => setIsMenuOpen((prev) => !prev)}
-          className={`relative flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all duration-200 border ${
+          className={`relative flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all duration-200 border cursor-pointer ${
             isMenuOpen
               ? 'bg-indigo-600/40 text-white border-indigo-400/60 shadow-[0_0_20px_rgba(99,102,241,0.4)]'
               : activeFeaturesCount > 0
@@ -196,7 +202,11 @@ export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
 
         {/* 3-Line Picker Dropdown Menu */}
         {isMenuOpen && (
-          <div className="absolute right-0 top-full mt-2 w-80 rounded-2xl ultra-glass-card border border-white/15 p-3.5 shadow-[0_25px_70px_rgba(0,0,0,0.85),0_0_35px_rgba(99,102,241,0.2)] backdrop-blur-2xl flex flex-col gap-2 z-50 animate-in fade-in zoom-in-95 duration-150">
+          <div
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+            className="absolute right-0 top-full mt-2 w-80 max-w-[calc(100vw-32px)] rounded-2xl bg-slate-950/95 border border-white/20 p-3.5 shadow-[0_25px_70px_rgba(0,0,0,0.95),0_0_35px_rgba(99,102,241,0.3)] backdrop-blur-3xl flex flex-col gap-2 z-50 animate-in fade-in zoom-in-95 duration-150"
+          >
             {/* Dropdown Header & Telemetry */}
             <div className="flex items-center justify-between pb-2 border-b border-white/10">
               <div className="flex items-center gap-2">
@@ -237,8 +247,12 @@ export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
               {/* Feature 1: Audio Route Switch */}
               {onToggleAudio && (
                 <button
-                  onClick={onToggleAudio}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onToggleAudio();
+                  }}
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer ${
                     isAudioToPc
                       ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.25)]'
                       : 'bg-white/5 text-slate-300 hover:text-white border border-white/5 hover:bg-white/10'
@@ -290,15 +304,29 @@ export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
               )}
 
               {/* Feature 2: Picture-in-Picture (PiP) */}
-              {onOpenPip && isPipSupported && (
+              {onOpenPip && (
                 <button
-                  onClick={onOpenPip}
+                  type="button"
+                  disabled={!isPipSupported}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (isPipSupported) {
+                      onOpenPip();
+                      setIsMenuOpen(false);
+                    }
+                  }}
                   className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                    isPipActive
-                      ? 'bg-indigo-500/25 text-indigo-200 border border-indigo-400/50 shadow-[0_0_15px_rgba(99,102,241,0.3)]'
-                      : 'bg-white/5 text-slate-300 hover:text-white border border-white/5 hover:bg-white/10'
+                    !isPipSupported
+                      ? 'bg-white/5 text-slate-500 border border-white/5 opacity-50 cursor-not-allowed'
+                      : isPipActive
+                      ? 'bg-indigo-500/25 text-indigo-200 border border-indigo-400/50 shadow-[0_0_15px_rgba(99,102,241,0.3)] cursor-pointer'
+                      : 'bg-white/5 text-slate-300 hover:text-white border border-white/5 hover:bg-white/10 cursor-pointer'
                   }`}
-                  title="Pop out floating Document Picture-in-Picture window with live 60 FPS mirror and controls"
+                  title={
+                    isPipSupported
+                      ? 'Pop out floating Document Picture-in-Picture window with live 60 FPS mirror and controls'
+                      : 'Picture-in-Picture requires Chrome/Edge 116+ (Document PiP API)'
+                  }
                 >
                   <div className="flex items-center gap-2.5">
                     <PictureInPicture2
@@ -307,58 +335,95 @@ export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
                     <div className="flex flex-col text-left">
                       <span className="font-semibold text-white">Picture-in-Picture</span>
                       <span className="text-[10px] text-slate-400">
-                        {isPipActive ? 'Floating window active' : 'Pop out live 60 FPS window'}
+                        {!isPipSupported
+                          ? 'Unsupported in this browser'
+                          : isPipActive
+                          ? 'Floating window active'
+                          : 'Pop out live 60 FPS window'}
                       </span>
                     </div>
                   </div>
 
                   <span
                     className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-bold ${
-                      isPipActive ? 'bg-indigo-500/30 text-indigo-200' : 'bg-slate-800 text-slate-400'
+                      !isPipSupported
+                        ? 'bg-slate-800 text-slate-500'
+                        : isPipActive
+                        ? 'bg-indigo-500/30 text-indigo-200'
+                        : 'bg-slate-800 text-slate-400'
                     }`}
                   >
-                    {isPipActive ? 'ACTIVE' : 'POP-OUT'}
+                    {!isPipSupported ? 'N/A' : isPipActive ? 'ACTIVE' : 'POP-OUT'}
                   </span>
                 </button>
               )}
 
-              {/* Feature 3: Parallel Split View (When > 1 device) */}
-              {devices.length > 1 && (
-                <button
-                  onClick={onToggleViewMode}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
-                    viewMode === 'split'
-                      ? 'bg-cyan-500/25 text-cyan-200 border border-cyan-400/50 shadow-[0_0_15px_rgba(6,182,212,0.3)]'
-                      : 'bg-white/5 text-slate-300 hover:text-white border border-white/5 hover:bg-white/10'
+              {/* Feature 3: Parallel Split View */}
+              <button
+                type="button"
+                disabled={devices.length < 2}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (devices.length >= 2) {
+                    onToggleViewMode();
+                  }
+                }}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                  devices.length < 2
+                    ? 'bg-white/5 text-slate-500 border border-white/5 opacity-50 cursor-not-allowed'
+                    : viewMode === 'split'
+                    ? 'bg-cyan-500/25 text-cyan-200 border border-cyan-400/50 shadow-[0_0_15px_rgba(6,182,212,0.3)] cursor-pointer'
+                    : 'bg-white/5 text-slate-300 hover:text-white border border-white/5 hover:bg-white/10 cursor-pointer'
+                }`}
+                title={
+                  devices.length >= 2
+                    ? 'Toggle between Single Tab View and Parallel Side-by-Side View'
+                    : 'Parallel Split View requires 2 or more connected USB devices'
+                }
+              >
+                <div className="flex items-center gap-2.5">
+                  <LayoutGrid
+                    className={`w-4 h-4 ${
+                      devices.length < 2
+                        ? 'text-slate-500'
+                        : viewMode === 'split'
+                        ? 'text-cyan-300'
+                        : 'text-slate-400'
+                    }`}
+                  />
+                  <div className="flex flex-col text-left">
+                    <span className="font-semibold text-white">Parallel Split View</span>
+                    <span className="text-[10px] text-slate-400">
+                      {devices.length < 2
+                        ? 'Connect 2nd phone to enable'
+                        : viewMode === 'split'
+                        ? 'Displaying 2 devices side-by-side'
+                        : 'Displaying single active tab'}
+                    </span>
+                  </div>
+                </div>
+
+                <span
+                  className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-bold ${
+                    devices.length < 2
+                      ? 'bg-slate-800 text-slate-500'
+                      : viewMode === 'split'
+                      ? 'bg-cyan-500/30 text-cyan-200'
+                      : 'bg-slate-800 text-slate-400'
                   }`}
-                  title="Toggle between Single Tab View and Parallel Side-by-Side View"
                 >
-                  <div className="flex items-center gap-2.5">
-                    <LayoutGrid
-                      className={`w-4 h-4 ${viewMode === 'split' ? 'text-cyan-300' : 'text-slate-400'}`}
-                    />
-                    <div className="flex flex-col text-left">
-                      <span className="font-semibold text-white">Parallel Split View</span>
-                      <span className="text-[10px] text-slate-400">
-                        {viewMode === 'split' ? 'Displaying 2 devices side-by-side' : 'Displaying single active tab'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <span
-                    className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-bold ${
-                      viewMode === 'split' ? 'bg-cyan-500/30 text-cyan-200' : 'bg-slate-800 text-slate-400'
-                    }`}
-                  >
-                    {viewMode === 'split' ? 'SPLIT' : 'TABS'}
-                  </span>
-                </button>
-              )}
+                  {devices.length < 2 ? 'NEED 2' : viewMode === 'split' ? 'SPLIT' : 'TABS'}
+                </span>
+              </button>
 
               {/* Feature 4: Synchronized Multi-Boxing */}
               <button
-                onClick={onToggleSync}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleSync();
+                }}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer ${
                   syncAll
                     ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-[0_0_15px_rgba(245,158,11,0.25)]'
                     : 'bg-white/5 text-slate-300 hover:text-white border border-white/5 hover:bg-white/10'
@@ -388,8 +453,12 @@ export const DeviceTabBar: React.FC<DeviceTabBarProps> = ({
 
               {/* Feature 5: Quick-Draw Privacy Mode */}
               <button
-                onClick={onTogglePrivacy}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTogglePrivacy();
+                }}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer ${
                   privacyMode
                     ? 'bg-purple-500/25 text-purple-200 border border-purple-400/50 shadow-[0_0_15px_rgba(168,85,247,0.3)]'
                     : 'bg-white/5 text-slate-300 hover:text-white border border-white/5 hover:bg-white/10'

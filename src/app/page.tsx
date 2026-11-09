@@ -1137,7 +1137,7 @@ export default function Home() {
       </aside>
 
       {/* Main Viewport: Multi-Device Numbered Tabs & Parallel Stages */}
-      <section className="flex-1 flex flex-col items-center justify-between p-4 relative overflow-hidden z-10">
+      <section className="flex-1 flex flex-col items-center justify-between p-4 relative overflow-visible z-10">
         {/* Feature #4: Multi-Device Numbered Tabs with Side-by-Side Split View toggle */}
         <DeviceTabBar
           devices={devices}
