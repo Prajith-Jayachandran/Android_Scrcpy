@@ -17,7 +17,6 @@ import { usePictureInPicture } from '@/hooks/usePictureInPicture';
 import { useDeviceAudio } from '@/hooks/useDeviceAudio';
 import { useAdaptiveBitrate } from '@/hooks/useAdaptiveBitrate';
 import { useSecurityShield } from '@/hooks/useSecurityShield';
-import { QuickFillVault } from '@/components/QuickFillVault';
 import { screenRecorder } from '@/lib/screenRecorder';
 import { DeviceInfo, StreamMeta, LogMessage, HardwareMockState, MacroCondition } from '@/lib/types';
 import { Cast } from 'lucide-react';
@@ -1127,12 +1126,6 @@ export default function Home() {
           onDeleteStep={macroRecorder.deleteStep}
           onClearSteps={macroRecorder.clearSteps}
           onImportSteps={macroRecorder.importSteps}
-        />
-
-        {/* Feature #4: Developer Quick-Fill Vault (Mock Data & Snippets Drawer) */}
-        <QuickFillVault
-          onInjectText={(text) => rawSendText(selectedDeviceId, text)}
-          isStreaming={isStreaming}
         />
       </aside>
 
